@@ -1,0 +1,71 @@
+{
+  "entities": {
+    "SchoolProfile": {
+      "title": "SchoolProfile",
+      "description": "School identity and official header information",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "npsn": { "type": "string" },
+        "address": { "type": "string" },
+        "headmasterName": { "type": "string" },
+        "headmasterNip": { "type": "string" }
+      },
+      "required": ["name", "npsn"]
+    },
+    "ClassRoom": {
+      "title": "ClassRoom",
+      "description": "Rombongan Belajar / Kelas",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "gradeLevel": { "type": "number" },
+        "phase": { "type": "string" },
+        "homeroomTeacherName": { "type": "string" }
+      },
+      "required": ["name", "gradeLevel"]
+    },
+    "Student": {
+      "title": "Student",
+      "description": "Siswa terdaftar",
+      "type": "object",
+      "properties": {
+        "nis": { "type": "string" },
+        "nisn": { "type": "string" },
+        "name": { "type": "string" },
+        "classId": { "type": "string" }
+      },
+      "required": ["nisn", "name", "classId"]
+    },
+    "GradeRecord": {
+      "title": "GradeRecord",
+      "description": "Rekaman nilai siswa",
+      "type": "object",
+      "properties": {
+        "studentId": { "type": "string" },
+        "subjectId": { "type": "string" },
+        "classId": { "type": "string" },
+        "nilaiAkhir": { "type": "number" }
+      },
+      "required": ["studentId", "subjectId", "classId"]
+    }
+  },
+  "firestore": {
+    "/schoolProfile/{profileId}": {
+      "schema": "SchoolProfile",
+      "description": "School profile documents"
+    },
+    "/classes/{classId}": {
+      "schema": "ClassRoom",
+      "description": "List of 12 classes"
+    },
+    "/students/{studentId}": {
+      "schema": "Student",
+      "description": "List of students"
+    },
+    "/grades/{gradeId}": {
+      "schema": "GradeRecord",
+      "description": "Academic scores"
+    }
+  }
+}

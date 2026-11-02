@@ -1,0 +1,65 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Global helper primitives
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Default catch-all
+    match /{document=**} {
+      allow read, write: if isSignedIn();
+    }
+
+    // Specific collections for e-Rapor
+    match /schoolProfile/{profileId} {
+      allow read: if true;
+      allow write: if isSignedIn();
+    }
+
+    match /classes/{classId} {
+      allow read: if true;
+      allow write: if isSignedIn();
+    }
+
+    match /subjects/{subjectId} {
+      allow read: if true;
+      allow write: if isSignedIn();
+    }
+
+    match /students/{studentId} {
+      allow read: if true;
+      allow write: if isSignedIn();
+    }
+
+    match /learningObjectives/{tpId} {
+      allow read: if true;
+      allow write: if isSignedIn();
+    }
+
+    match /grades/{gradeId} {
+      allow read: if true;
+      allow write: if isSignedIn();
+    }
+
+    match /attendances/{attendanceId} {
+      allow read: if true;
+      allow write: if isSignedIn();
+    }
+
+    match /extracurriculars/{ekskulId} {
+      allow read: if true;
+      allow write: if isSignedIn();
+    }
+
+    match /homeroomNotes/{noteId} {
+      allow read: if true;
+      allow write: if isSignedIn();
+    }
+  }
+}

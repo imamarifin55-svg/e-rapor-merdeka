@@ -1,0 +1,6 @@
+{
+  "name": "e-Rapor Merdeka Terintegrasi",
+  "description": "Aplikasi e-Rapor resmi berstandar Kemendikbudristek dengan pengelolaan nilai kurikulum merdeka, impor/ekspor Excel massal, cetak rapor resmi PDF, backup otomatis, dan multi-peran pengguna.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
