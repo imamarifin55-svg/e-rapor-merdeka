@@ -44,9 +44,11 @@ import { DashboardView } from './components/DashboardView';
 import { GradeManagementView } from './components/GradeManagementView';
 import { StudentSyncView } from './components/StudentSyncView';
 import { ReportCardPrintView } from './components/ReportCardPrintView';
+import { HomeroomManagementView } from './components/HomeroomManagementView';
 import { BackupRestoreView } from './components/BackupRestoreView';
 import { FirebaseConsoleSetupModal } from './components/FirebaseConsoleSetupModal';
 import { CloudDatabaseComparisonModal } from './components/CloudDatabaseComparisonModal';
+import { LoginPage } from './components/LoginPage';
 import { SchoolSettingsModal } from './components/SchoolSettingsModal';
 import {
   Menu,
@@ -120,6 +122,7 @@ export default function App() {
   const [hasFirebaseConfig, setHasFirebaseConfig] = useState<boolean>(!!getActiveFirebaseConfig());
 
   // Active Multi-User Session
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(true);
   const [currentSession, setCurrentSession] = useState<UserSession>({
     id: 'usr-admin',
     name: 'Budi Santoso, S.Kom. (Admin)',
@@ -185,6 +188,7 @@ export default function App() {
     dashboard: 'Dasbor Penilaian & Statistik KKTP',
     grades: 'Kelola Nilai & Tujuan Pembelajaran (TP)',
     students: 'Data Siswa & Sinkronisasi Massal Excel',
+    homeroom: 'Wali Kelas: Rekap Absensi, Ekskul & Catatan Rapor',
     reports: 'Cetak Rapor Resmi & Leger Nilai PDF',
     backup: 'Pusat Cadangan & Pemulihan Basis Data',
   };
@@ -192,6 +196,23 @@ export default function App() {
   // Student specific data for Portal Siswa
   const currentStudentObj = students.find((s) => s.id === currentSession.id) || students[0];
   const currentStudentGrades = grades.filter((g) => g.studentId === currentStudentObj?.id);
+
+  if (!isAuthenticated) {
+    return (
+      <LoginPage
+        schoolProfile={schoolProfile}
+        teachers={teachers}
+        classes={classes}
+        students={students}
+        onLoginSuccess={(sess) => {
+          setCurrentSession(sess);
+          setIsAuthenticated(true);
+          setCurrentTab('dashboard');
+        }}
+        onOpenFirebaseModal={() => setIsFirebaseModalOpen(true)}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-100/80 text-slate-900 flex font-sans selection:bg-blue-600 selection:text-white">
@@ -221,6 +242,7 @@ export default function App() {
         isCollapsed={isSidebarCollapsed}
         onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
         isFirebaseConnected={hasFirebaseConfig}
+        onLogout={() => setIsAuthenticated(false)}
       />
 
       {/* 2. Main Content Wrapper */}
@@ -413,6 +435,21 @@ export default function App() {
                     });
                     setStudents(working);
                   }}
+                />
+              )}
+
+              {currentTab === 'homeroom' && (
+                <HomeroomManagementView
+                  currentSession={currentSession}
+                  classes={classes}
+                  students={students}
+                  attendances={attendances}
+                  onUpdateAttendances={setAttendances}
+                  extracurriculars={extracurriculars}
+                  onUpdateExtracurriculars={setExtracurriculars}
+                  homeroomNotes={homeroomNotes}
+                  onUpdateHomeroomNotes={setHomeroomNotes}
+                  onNavigateToPrint={() => setCurrentTab('reports')}
                 />
               )}
 

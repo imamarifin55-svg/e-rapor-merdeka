@@ -24,6 +24,8 @@ import {
   CheckCircle2,
   X,
   ShieldCheck,
+  UserCheck,
+  LogOut,
 } from 'lucide-react';
 
 interface Props {
@@ -45,6 +47,7 @@ interface Props {
   isCollapsed: boolean;
   onToggleCollapse: () => void;
   isFirebaseConnected: boolean;
+  onLogout?: () => void;
 }
 
 export const Sidebar: React.FC<Props> = ({
@@ -66,6 +69,7 @@ export const Sidebar: React.FC<Props> = ({
   isCollapsed,
   onToggleCollapse,
   isFirebaseConnected,
+  onLogout,
 }) => {
   const [roleDropdownOpen, setRoleDropdownOpen] = useState(false);
   const [classSubmenuOpen, setClassSubmenuOpen] = useState(false);
@@ -254,6 +258,29 @@ export const Sidebar: React.FC<Props> = ({
               {!isCollapsed && (
                 <span className="text-[10px] bg-slate-800 text-slate-300 font-bold px-1.5 py-0.5 rounded-full">
                   {totalStudentsCount}
+                </span>
+              )}
+            </button>
+          )}
+
+          {/* 4. Homeroom Teacher Management (Absensi, Ekskul, Catatan) */}
+          {(currentSession.role === 'admin' || currentSession.role === 'wali_kelas') && (
+            <button
+              onClick={() => handleSelectTab('homeroom')}
+              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition ${
+                currentTab === 'homeroom'
+                  ? 'bg-emerald-600 text-white shadow-md shadow-emerald-900/30 font-bold'
+                  : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/60'
+              }`}
+              title="Wali Kelas: Absensi, Ekskul & Catatan Rapor"
+            >
+              <div className="flex items-center gap-3 overflow-hidden">
+                <UserCheck className={`w-5 h-5 shrink-0 ${currentTab === 'homeroom' ? 'text-white' : 'text-slate-400'}`} />
+                {!isCollapsed && <span className="truncate">Wali Kelas (Absensi)</span>}
+              </div>
+              {!isCollapsed && (
+                <span className="text-[10px] bg-slate-800 text-emerald-300 font-bold px-1.5 py-0.5 rounded-full">
+                  12 Rombel
                 </span>
               )}
             </button>
@@ -455,8 +482,19 @@ export const Sidebar: React.FC<Props> = ({
               title="Pengaturan Sekolah"
             >
               <Settings className="w-3.5 h-3.5" />
-              {!isCollapsed && <span className="text-[11px]">Profil Sekolah</span>}
+              {!isCollapsed && <span className="text-[11px]">Profil</span>}
             </button>
+
+            {onLogout && (
+              <button
+                onClick={onLogout}
+                className="flex items-center gap-1 hover:text-rose-400 text-slate-400 transition"
+                title="Keluar ke Halaman Login"
+              >
+                <LogOut className="w-3.5 h-3.5 text-rose-400" />
+                {!isCollapsed && <span className="text-[11px] text-rose-400">Keluar</span>}
+              </button>
+            )}
 
             {/* Desktop Collapse Toggle */}
             <button
