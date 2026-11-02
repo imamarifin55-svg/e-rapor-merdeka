@@ -39,6 +39,11 @@ import {
   downloadBackupFile,
 } from './utils/backupHandler';
 import { getActiveFirebaseConfig } from './services/firebase';
+import {
+  subscribeToFirestoreState,
+  pushStateToFirestore,
+  pushSchoolProfileToFirestore,
+} from './services/firestoreSync';
 import { Sidebar } from './components/Sidebar';
 import { DashboardView } from './components/DashboardView';
 import { GradeManagementView } from './components/GradeManagementView';
@@ -165,6 +170,61 @@ export default function App() {
     homeroomNotes,
   ]);
 
+  // Live cross-browser Firestore synchronization
+  const [syncStatus, setSyncStatus] = useState<'connected' | 'syncing' | 'offline' | 'error'>('connected');
+
+  useEffect(() => {
+    const unsubscribe = subscribeToFirestoreState(
+      (remoteData) => {
+        if (remoteData.schoolProfile) setSchoolProfile(remoteData.schoolProfile);
+        if (remoteData.academicYears && remoteData.academicYears.length > 0) setAcademicYears(remoteData.academicYears);
+        if (remoteData.classes && remoteData.classes.length > 0) setClasses(remoteData.classes);
+        if (remoteData.subjects && remoteData.subjects.length > 0) setSubjects(remoteData.subjects);
+        if (remoteData.teachers && remoteData.teachers.length > 0) setTeachers(remoteData.teachers);
+        if (remoteData.students && remoteData.students.length > 0) setStudents(remoteData.students);
+        if (remoteData.grades && remoteData.grades.length > 0) setGrades(remoteData.grades);
+        if (remoteData.attendances && remoteData.attendances.length > 0) setAttendances(remoteData.attendances);
+        if (remoteData.extracurriculars && remoteData.extracurriculars.length > 0) setExtracurriculars(remoteData.extracurriculars);
+        if (remoteData.homeroomNotes && remoteData.homeroomNotes.length > 0) setHomeroomNotes(remoteData.homeroomNotes);
+        if (remoteData.learningObjectives && remoteData.learningObjectives.length > 0) setLearningObjectives(remoteData.learningObjectives);
+      },
+      (status) => setSyncStatus(status)
+    );
+
+    return () => unsubscribe();
+  }, []);
+
+  const handleSaveSchoolProfile = async (updated: SchoolProfile) => {
+    setSchoolProfile(updated);
+    // Push directly to Firestore so all browsers get updated via onSnapshot!
+    await pushSchoolProfileToFirestore(updated);
+  };
+
+  const handleUpdateGrades = (updatedGrades: GradeRecord[]) => {
+    setGrades(updatedGrades);
+    pushStateToFirestore({ grades: updatedGrades });
+  };
+
+  const handleUpdateStudents = (updatedStudents: Student[]) => {
+    setStudents(updatedStudents);
+    pushStateToFirestore({ students: updatedStudents });
+  };
+
+  const handleUpdateAttendances = (updated: AttendanceRecord[]) => {
+    setAttendances(updated);
+    pushStateToFirestore({ attendances: updated });
+  };
+
+  const handleUpdateExtracurriculars = (updated: ExtracurricularRecord[]) => {
+    setExtracurriculars(updated);
+    pushStateToFirestore({ extracurriculars: updated });
+  };
+
+  const handleUpdateHomeroomNotes = (updated: StudentHomeroomNote[]) => {
+    setHomeroomNotes(updated);
+    pushStateToFirestore({ homeroomNotes: updated });
+  };
+
   const handleRestoreBackup = (restored: SystemBackupData) => {
     if (restored.schoolProfile) setSchoolProfile(restored.schoolProfile);
     if (restored.academicYears) setAcademicYears(restored.academicYears);
@@ -177,6 +237,7 @@ export default function App() {
     if (restored.attendances) setAttendances(restored.attendances);
     if (restored.extracurriculars) setExtracurriculars(restored.extracurriculars);
     if (restored.homeroomNotes) setHomeroomNotes(restored.homeroomNotes);
+    pushStateToFirestore(restored);
   };
 
   const handleResetToDefault = () => {
@@ -284,10 +345,28 @@ export default function App() {
             {/* Right: Cloud/Firebase Status & Quick Links */}
             <div className="flex items-center gap-2 sm:gap-3">
               
+              {/* Realtime Live Cross-Browser Sync Status */}
+              <div 
+                className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold shadow-2xs"
+                title="Data tersinkronisasi otomatis secara realtime ke Firebase Cloud Firestore untuk semua browser & perangkat guru"
+              >
+                <span className="flex h-2.5 w-2.5 relative">
+                  <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
+                    syncStatus === 'connected' ? 'bg-emerald-400' : syncStatus === 'syncing' ? 'bg-amber-400' : 'bg-red-400'
+                  }`}></span>
+                  <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${
+                    syncStatus === 'connected' ? 'bg-emerald-500' : syncStatus === 'syncing' ? 'bg-amber-500' : 'bg-red-500'
+                  }`}></span>
+                </span>
+                <span className="text-[11px] font-bold">
+                  {syncStatus === 'connected' ? 'Cloud: Sinkron Realtime' : syncStatus === 'syncing' ? 'Menyinkronkan...' : 'Offline'}
+                </span>
+              </div>
+
               {/* Firebase / Vercel Indicator Button */}
               <button
                 onClick={() => setIsFirebaseModalOpen(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 transition text-xs font-bold shadow-2xs"
+                className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 transition text-xs font-bold shadow-2xs"
                 title="Buka Pengaturan Firebase Console & Panduan Vercel"
               >
                 <Flame className="w-3.5 h-3.5 text-amber-600" />
@@ -404,13 +483,17 @@ export default function App() {
                   students={students}
                   learningObjectives={learningObjectives}
                   grades={grades}
-                  onUpdateGrades={setGrades}
-                  onAddLearningObjective={(newTp) =>
-                    setLearningObjectives([...learningObjectives, newTp])
-                  }
-                  onDeleteLearningObjective={(tpId) =>
-                    setLearningObjectives(learningObjectives.filter((tp) => tp.id !== tpId))
-                  }
+                  onUpdateGrades={handleUpdateGrades}
+                  onAddLearningObjective={(newTp) => {
+                    const next = [...learningObjectives, newTp];
+                    setLearningObjectives(next);
+                    pushStateToFirestore({ learningObjectives: next });
+                  }}
+                  onDeleteLearningObjective={(tpId) => {
+                    const next = learningObjectives.filter((tp) => tp.id !== tpId);
+                    setLearningObjectives(next);
+                    pushStateToFirestore({ learningObjectives: next });
+                  }}
                 />
               )}
 
@@ -418,11 +501,21 @@ export default function App() {
                 <StudentSyncView
                   students={students}
                   classes={classes}
-                  onAddStudent={(newStudent) => setStudents([...students, newStudent])}
-                  onUpdateStudent={(updated) =>
-                    setStudents(students.map((s) => (s.id === updated.id ? updated : s)))
-                  }
-                  onDeleteStudent={(stdId) => setStudents(students.filter((s) => s.id !== stdId))}
+                  onAddStudent={(newStudent) => {
+                    const next = [...students, newStudent];
+                    setStudents(next);
+                    pushStateToFirestore({ students: next });
+                  }}
+                  onUpdateStudent={(updated) => {
+                    const next = students.map((s) => (s.id === updated.id ? updated : s));
+                    setStudents(next);
+                    pushStateToFirestore({ students: next });
+                  }}
+                  onDeleteStudent={(stdId) => {
+                    const next = students.filter((s) => s.id !== stdId);
+                    setStudents(next);
+                    pushStateToFirestore({ students: next });
+                  }}
                   onBatchSyncStudents={(incoming) => {
                     const working = [...students];
                     incoming.forEach((item) => {
@@ -434,6 +527,7 @@ export default function App() {
                       }
                     });
                     setStudents(working);
+                    pushStateToFirestore({ students: working });
                   }}
                 />
               )}
@@ -444,11 +538,11 @@ export default function App() {
                   classes={classes}
                   students={students}
                   attendances={attendances}
-                  onUpdateAttendances={setAttendances}
+                  onUpdateAttendances={handleUpdateAttendances}
                   extracurriculars={extracurriculars}
-                  onUpdateExtracurriculars={setExtracurriculars}
+                  onUpdateExtracurriculars={handleUpdateExtracurriculars}
                   homeroomNotes={homeroomNotes}
-                  onUpdateHomeroomNotes={setHomeroomNotes}
+                  onUpdateHomeroomNotes={handleUpdateHomeroomNotes}
                   onNavigateToPrint={() => setCurrentTab('reports')}
                 />
               )}
@@ -522,7 +616,7 @@ export default function App() {
         isOpen={isSettingsModalOpen}
         onClose={() => setIsSettingsModalOpen(false)}
         profile={schoolProfile}
-        onSave={(updated) => setSchoolProfile(updated)}
+        onSave={handleSaveSchoolProfile}
       />
 
     </div>

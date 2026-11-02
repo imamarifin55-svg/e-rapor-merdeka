@@ -2,64 +2,45 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // Global helper primitives
-    function isSignedIn() {
-      return request.auth != null;
-    }
-    
-    function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
-    }
-
-    // Default catch-all
+    // Izinkan sinkronisasi realtime e-Rapor lintas peramban & perangkat
     match /{document=**} {
-      allow read, write: if isSignedIn();
+      allow read, write: if true;
     }
 
-    // Specific collections for e-Rapor
     match /schoolProfile/{profileId} {
-      allow read: if true;
-      allow write: if isSignedIn();
+      allow read, write: if true;
+    }
+
+    match /school_data/{docId} {
+      allow read, write: if true;
     }
 
     match /classes/{classId} {
-      allow read: if true;
-      allow write: if isSignedIn();
+      allow read, write: if true;
     }
 
     match /subjects/{subjectId} {
-      allow read: if true;
-      allow write: if isSignedIn();
+      allow read, write: if true;
     }
 
     match /students/{studentId} {
-      allow read: if true;
-      allow write: if isSignedIn();
-    }
-
-    match /learningObjectives/{tpId} {
-      allow read: if true;
-      allow write: if isSignedIn();
+      allow read, write: if true;
     }
 
     match /grades/{gradeId} {
-      allow read: if true;
-      allow write: if isSignedIn();
+      allow read, write: if true;
     }
 
     match /attendances/{attendanceId} {
-      allow read: if true;
-      allow write: if isSignedIn();
+      allow read, write: if true;
     }
 
     match /extracurriculars/{ekskulId} {
-      allow read: if true;
-      allow write: if isSignedIn();
+      allow read, write: if true;
     }
 
     match /homeroomNotes/{noteId} {
-      allow read: if true;
-      allow write: if isSignedIn();
+      allow read, write: if true;
     }
   }
 }

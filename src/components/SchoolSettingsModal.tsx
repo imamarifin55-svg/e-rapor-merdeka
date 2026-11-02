@@ -6,23 +6,30 @@ interface Props {
   isOpen: boolean;
   onClose: () => void;
   profile: SchoolProfile;
-  onSave: (updated: SchoolProfile) => void;
+  onSave: (updated: SchoolProfile) => Promise<void> | void;
 }
 
 export const SchoolSettingsModal: React.FC<Props> = ({ isOpen, onClose, profile, onSave }) => {
   const [formData, setFormData] = useState<SchoolProfile>({ ...profile });
   const [savedNotice, setSavedNotice] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
+  React.useEffect(() => {
+    setFormData({ ...profile });
+  }, [profile]);
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    onSave(formData);
+    setIsSaving(true);
+    await onSave(formData);
+    setIsSaving(false);
     setSavedNotice(true);
     setTimeout(() => {
       setSavedNotice(false);
       onClose();
-    }, 800);
+    }, 900);
   };
 
   return (
