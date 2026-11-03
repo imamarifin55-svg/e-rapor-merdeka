@@ -229,48 +229,84 @@ VITE_FIREBASE_DATABASE_ID=${firestoreDbId || '(default)'}`;
                     Di halaman konfigurasi Vercel, gulir sedikit ke bawah dan temukan bagian bertuliskan <strong>"Environment Variables"</strong> (klik judulnya agar menunya terbuka ke bawah).
                   </p>
 
-                  <div className="bg-amber-50 border border-amber-300 p-3 rounded-xl text-amber-900 space-y-2">
-                    <p className="font-bold flex items-center gap-1.5">
-                      <Sparkles className="w-4 h-4 text-amber-600" />
-                      Cara Paling Cepat (Otomatis):
+                  {/* Status Banner */}
+                  <div className="bg-emerald-50 border border-emerald-300 p-3 rounded-xl text-emerald-900 space-y-1">
+                    <div className="flex items-center gap-2 font-bold text-emerald-950 text-xs">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>File .env &amp; Nilai Secret Telah Dibuatkan Langsung ke Aplikasi!</span>
+                    </div>
+                    <p className="text-[11px] text-emerald-800 leading-relaxed">
+                      Sistem telah menuliskan file <code>.env</code> dengan 7 nilai kredensial aktif ke server aplikasi. Untuk kebutuhan online ke Vercel atau GitHub Secrets, Anda cukup menyalin nilai di bawah ini:
                     </p>
-                    <p className="text-[11px] leading-relaxed">
-                      Klik tombol di bawah ini. Lalu di layar Vercel, klik kotak input pertama pada bagian Environment Variables, dan tekan <strong>Ctrl + V</strong> (Paste). Semua 7 kunci akan otomatis terisi rapi!
+                  </div>
+
+                  <div className="bg-amber-50 border border-amber-300 p-3.5 rounded-xl text-amber-900 space-y-2.5">
+                    <p className="font-bold flex items-center gap-1.5 text-xs">
+                      <Sparkles className="w-4 h-4 text-amber-600" />
+                      Opsi 1: Salin Semua Sekaligus (1-Klik Paste untuk Vercel):
+                    </p>
+                    <p className="text-[11px] leading-relaxed text-amber-800">
+                      Klik tombol di bawah ini, lalu pada form Vercel Environment Variables, klik kolom pertama dan tekan <strong>Ctrl + V</strong>. Semua 7 secret value akan terisi otomatis sekaligus!
                     </p>
                     <button
                       onClick={() => handleCopy(vercelEnvSnippet, 'all_env_btn')}
-                      className="bg-amber-600 hover:bg-amber-700 text-white font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-2 shadow-xs transition"
+                      className="bg-amber-600 hover:bg-amber-700 text-white font-bold px-4 py-2.5 rounded-xl text-xs flex items-center gap-2 shadow-xs transition"
                     >
                       <Copy className="w-4 h-4" />
-                      {copiedKey === 'all_env_btn' ? 'Berhasil Tersalin ke Clipboard!' : 'Klik Di Sini: Salin Semua Kunci untuk Vercel'}
+                      {copiedKey === 'all_env_btn' ? 'Berhasil Tersalin ke Clipboard!' : 'Klik Di Sini: Salin Semua Kunci (.env)'}
                     </button>
                   </div>
 
                   <p className="font-semibold text-slate-800 pt-1">
-                    Atau jika ingin memasukkan satu per satu:
+                    Opsi 2: Salin Satu per Satu (Untuk Secret Name &amp; Secret Value di Vercel / GitHub):
                   </p>
 
                   {/* Individual copy table */}
-                  <div className="border border-slate-200 rounded-xl overflow-hidden bg-white">
+                  <div className="border border-slate-200 rounded-xl overflow-hidden bg-white shadow-2xs">
                     <table className="w-full text-left text-[11px]">
                       <thead className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
                         <tr>
-                          <th className="p-2">Nama Kolom (Key)</th>
-                          <th className="p-2">Nilai (Value)</th>
-                          <th className="p-2 text-center w-20">Aksi</th>
+                          <th className="p-2.5">Secret Name (Key)</th>
+                          <th className="p-2.5">Secret Value (Nilai)</th>
+                          <th className="p-2.5 text-center w-28">Aksi Salin</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-200">
                         {envItems.map((item, idx) => (
-                          <tr key={idx} className="hover:bg-slate-50">
-                            <td className="p-2 font-mono font-bold text-slate-800">{item.key}</td>
-                            <td className="p-2 font-mono text-slate-600 truncate max-w-[200px]">{item.val || '-'}</td>
-                            <td className="p-2 text-center">
+                          <tr key={idx} className="hover:bg-slate-50 transition">
+                            <td className="p-2.5 font-mono font-bold text-slate-800 text-[11px]">
+                              <div className="flex items-center justify-between gap-1">
+                                <span>{item.key}</span>
+                                <button
+                                  onClick={() => handleCopy(item.key, `key_${idx}`)}
+                                  title="Salin Nama Kunci"
+                                  className="text-slate-400 hover:text-blue-600 p-1"
+                                >
+                                  <Copy className="w-3 h-3" />
+                                </button>
+                              </div>
+                            </td>
+                            <td className="p-2.5 font-mono text-slate-600 truncate max-w-[220px] text-[10.5px]">
+                              {item.val || '-'}
+                            </td>
+                            <td className="p-2.5 text-center">
                               <button
                                 onClick={() => handleCopy(item.val, `val_${idx}`)}
-                                className="px-2 py-1 bg-slate-100 hover:bg-blue-100 text-blue-700 font-semibold rounded text-[10px]"
+                                className={`px-2.5 py-1 font-bold rounded text-[10px] transition flex items-center justify-center gap-1 mx-auto ${
+                                  copiedKey === `val_${idx}`
+                                    ? 'bg-emerald-600 text-white'
+                                    : 'bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200'
+                                }`}
                               >
-                                {copiedKey === `val_${idx}` ? 'Tersalin' : 'Salin'}
+                                {copiedKey === `val_${idx}` ? (
+                                  <>
+                                    <Check className="w-3 h-3" /> Tersalin!
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy className="w-3 h-3" /> Salin Value
+                                  </>
+                                )}
                               </button>
                             </td>
                           </tr>

@@ -20,6 +20,7 @@ import {
   ArrowRight,
   Sparkles,
   TrendingUp,
+  GraduationCap,
 } from 'lucide-react';
 
 interface Props {
@@ -83,13 +84,13 @@ export const DashboardView: React.FC<Props> = ({
         <div className="relative z-10 max-w-3xl space-y-2">
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/20 text-sky-100 text-xs font-semibold backdrop-blur-xs">
             <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-            Portal Penilaian &amp; Asesmen Kurikulum Merdeka
+            Portal Asesmen Sumatif Tengah Semester (Rapor Sisipan)
           </div>
           <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
             Selamat Datang, {currentSession.name}
           </h2>
           <p className="text-xs sm:text-sm text-blue-100 leading-relaxed">
-            Sistem e-Rapor siap mengelola penilaian formatif, sumatif lingkup materi, narasi capaian kompetensi otomatis, dan sinkronisasi massal Excel secara efisien dan akurat.
+            Sistem e-Rapor Sisipan siap mengelola input nilai asli hasil tes STS siswa secara langsung tanpa pembobotan dan tanpa TP, pembuatan leger kelas, dan pencetakan rapor tengah semester.
           </p>
 
           <div className="pt-2 flex flex-wrap gap-2.5">
@@ -98,14 +99,14 @@ export const DashboardView: React.FC<Props> = ({
               className="bg-white text-blue-800 hover:bg-blue-50 px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition"
             >
               <FileSpreadsheet className="w-4 h-4 text-blue-600" />
-              Mulai Input Nilai Mapel
+              Input Nilai Asli STS
             </button>
             <button
               onClick={() => onNavigate('reports')}
               className="bg-blue-800/80 hover:bg-blue-800 text-white border border-blue-400/40 px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition"
             >
               <Printer className="w-4 h-4 text-sky-300" />
-              Cetak Rapor Siswa (PDF)
+              Cetak Rapor STS (PDF)
             </button>
             <button
               onClick={onOpenCloudModal}
@@ -271,8 +272,24 @@ export const DashboardView: React.FC<Props> = ({
             <h3 className="font-bold text-slate-900 text-sm">Aksi Cepat Sekolah</h3>
             <div className="space-y-2">
               <button
-                onClick={() => onNavigate('students')}
+                onClick={() => onNavigate('teachers')}
                 className="w-full text-left p-3 rounded-xl border border-slate-200 hover:border-blue-300 hover:bg-blue-50/50 transition flex items-center justify-between group"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center font-bold">
+                    <GraduationCap className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold text-slate-800">Data Guru &amp; Akun e-Rapor</p>
+                    <p className="text-[11px] text-slate-500">Kelola peran &amp; kredensial pendidik</p>
+                  </div>
+                </div>
+                <ArrowRight className="w-4 h-4 text-slate-400 group-hover:text-blue-600 transition" />
+              </button>
+
+              <button
+                onClick={() => onNavigate('students')}
+                className="w-full text-left p-3 rounded-xl border border-slate-200 hover:border-slate-300 hover:bg-slate-50/50 transition flex items-center justify-between group"
               >
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center font-bold">

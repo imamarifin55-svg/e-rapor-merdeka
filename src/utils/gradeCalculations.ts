@@ -1,7 +1,81 @@
-import { LearningObjective, Subject } from '../types/erapor';
+import { Subject } from '../types/erapor';
 
+export interface StsAssessmentResult {
+  stsScore: number;
+  nilaiAkhir: number;
+  predikat: 'A' | 'B' | 'C' | 'D';
+  status: 'Tuntas' | 'Belum Tuntas';
+  catatanSts: string;
+}
+
+/**
+ * Menghitung predikat berdasarkan KKTP dan nilai asli STS
+ */
+export function getStsPredicate(score: number, kktp: number = 75): 'A' | 'B' | 'C' | 'D' {
+  if (score >= 90) return 'A';
+  if (score >= 80) return 'B';
+  if (score >= kktp) return 'C';
+  return 'D';
+}
+
+/**
+ * Menentukan status ketuntasan berdasarkan nilai STS dan KKTP
+ */
+export function getStsStatus(score: number, kktp: number = 75): 'Tuntas' | 'Belum Tuntas' {
+  return score >= kktp ? 'Tuntas' : 'Belum Tuntas';
+}
+
+/**
+ * Menghasilkan catatan otomatis perkembangan belajar STS siswa
+ */
+export function generateDefaultStsNote(score: number, kktp: number = 75, subjectName?: string): string {
+  const subLabel = subjectName ? `dalam mata pelajaran ${subjectName}` : 'pada materi tengah semester';
+  if (score >= 92) {
+    return `Menunjukkan penguasaan yang sangat memuaskan dan konsisten ${subLabel}. Pertahankan prestasi belajar.`;
+  }
+  if (score >= 83) {
+    return `Menunjukkan pemahaman yang baik ${subLabel}. Terus pertahankan motivasi dan ketekunan belajar.`;
+  }
+  if (score >= kktp) {
+    return `Telah mencapai kriteria ketuntasan ${subLabel}. Perlu peningkatan ketelitian dan pemantapan latihan.`;
+  }
+  return `Perlu bimbingan tambahan dan peningkatan belajar ${subLabel} agar mencapai kriteria ketuntasan (KKTP: ${kktp}).`;
+}
+
+/**
+ * Kalkulasi murni Nilai STS (Rapor Sisipan):
+ * Nilai Rapor adalah nilai asli STS siswa tanpa pembobotan, tanpa TP.
+ */
+export function calculatePureStsGrade(
+  rawScore: number,
+  kktp: number = 75,
+  existingNote?: string,
+  subjectName?: string
+): StsAssessmentResult {
+  const safeScore = Math.max(0, Math.min(100, Math.round(Number(rawScore) || 0)));
+  const status = getStsStatus(safeScore, kktp);
+  const predikat = getStsPredicate(safeScore, kktp);
+  const catatanSts = existingNote && existingNote.trim() !== ''
+    ? existingNote
+    : generateDefaultStsNote(safeScore, kktp, subjectName);
+
+  return {
+    stsScore: safeScore,
+    nilaiAkhir: safeScore, // Nilai asli tanpa bobot
+    predikat,
+    status,
+    catatanSts,
+  };
+}
+
+/**
+ * Kompatibilitas dengan pemanggil lama jika ada:
+ * Menghitung nilai akhir yang langsung mengutamakan nilai asli STS siswa
+ */
 export interface CalculatedGradeResult {
   rataSumatifLM: number;
+  stsScore?: number;
+  sasScore: number;
   nilaiAkhir: number;
   highestNarrative: string;
   lowestNarrative: string;
@@ -11,73 +85,24 @@ export function calculateSubjectFinalGrade(
   sumatifScores: Record<string, number>,
   sasScore: number,
   subject: Subject,
-  tps: LearningObjective[]
+  _tps?: any[],
+  stsScore?: number
 ): CalculatedGradeResult {
-  const scores = Object.values(sumatifScores).filter((val) => typeof val === 'number' && !isNaN(val));
+  const kktp = subject.kktp || 75;
+  // Jika nilai STS tersedia, nilai rapor sisipan adalah nilai asli STS
+  const rawSts = typeof stsScore === 'number' && !isNaN(stsScore) ? stsScore : (sasScore || 0);
+  const safeScore = Math.max(0, Math.min(100, Math.round(rawSts)));
 
-  const rataSLM = scores.length > 0
-    ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 10) / 10
-    : 0;
-
-  const validSas = typeof sasScore === 'number' && !isNaN(sasScore) ? sasScore : rataSLM;
-
-  const totalWeight = (subject.weightSLM || 60) + (subject.weightSAS || 40);
-  const naCalc = totalWeight > 0
-    ? ((rataSLM * (subject.weightSLM || 60)) + (validSas * (subject.weightSAS || 40))) / totalWeight
-    : rataSLM;
-
-  const finalNA = Math.round(naCalc);
-
-  // Generate automated Kurikulum Merdeka Competency Narratives
-  let highestTP: LearningObjective | null = null;
-  let highestScore = -1;
-  let lowestTP: LearningObjective | null = null;
-  let lowestScore = 999;
-
-  for (const tp of tps) {
-    const score = sumatifScores[tp.id];
-    if (typeof score === 'number' && !isNaN(score)) {
-      if (score > highestScore) {
-        highestScore = score;
-        highestTP = tp;
-      }
-      if (score < lowestScore) {
-        lowestScore = score;
-        lowestTP = tp;
-      }
-    }
-  }
-
-  let highestNarrative = '';
-  let lowestNarrative = '';
-
-  if (highestTP) {
-    const cleanDesc = highestTP.description.charAt(0).toLowerCase() + highestTP.description.slice(1);
-    if (highestScore >= 85) {
-      highestNarrative = `Menunjukkan penguasaan yang sangat baik dalam ${cleanDesc}.`;
-    } else if (highestScore >= (subject.kktp || 75)) {
-      highestNarrative = `Menunjukkan pemahaman yang baik dalam ${cleanDesc}.`;
-    } else {
-      highestNarrative = `Cukup menguasai kompetensi ${cleanDesc}.`;
-    }
-  } else {
-    highestNarrative = `Menunjukkan penguasaan yang memadai pada seluruh materi pembelajaran yang diujikan.`;
-  }
-
-  if (lowestTP && lowestScore < (subject.kktp || 75)) {
-    const cleanDesc = lowestTP.description.charAt(0).toLowerCase() + lowestTP.description.slice(1);
-    lowestNarrative = `Perlu bimbingan dan peningkatan pemahaman dalam ${cleanDesc}.`;
-  } else if (lowestTP && lowestScore < 85 && highestScore >= 85) {
-    const cleanDesc = lowestTP.description.charAt(0).toLowerCase() + lowestTP.description.slice(1);
-    lowestNarrative = `Perlu sedikit pemantapan materi dalam ${cleanDesc}.`;
-  } else {
-    lowestNarrative = `Mampu mempertahankan ketuntasan belajar secara konsisten pada semua kompetensi.`;
-  }
+  const note = generateDefaultStsNote(safeScore, kktp, subject.name);
 
   return {
-    rataSumatifLM: rataSLM,
-    nilaiAkhir: finalNA,
-    highestNarrative,
-    lowestNarrative,
+    rataSumatifLM: safeScore,
+    stsScore: safeScore,
+    sasScore: safeScore,
+    nilaiAkhir: safeScore, // Nilai murni asli STS siswa
+    highestNarrative: note,
+    lowestNarrative: safeScore >= kktp
+      ? 'Memenuhi capaian pembelajaran tengah semester dengan tuntas.'
+      : `Belum tuntas KKTP (${kktp}), membutuhkan program remedial/bimbingan belajar.`,
   };
 }

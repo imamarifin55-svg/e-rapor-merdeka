@@ -99,16 +99,41 @@ export function subscribeToFirestoreState(
     return () => {};
   }
 
-  if (onSyncStatusChange) onSyncStatusChange('syncing');
+  // Handle browser online/offline status
+  const handleOnline = () => {
+    if (onSyncStatusChange) onSyncStatusChange('syncing');
+  };
+  const handleOffline = () => {
+    if (onSyncStatusChange) onSyncStatusChange('offline');
+  };
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+  }
+
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    if (onSyncStatusChange) onSyncStatusChange('offline');
+  } else {
+    if (onSyncStatusChange) onSyncStatusChange('syncing');
+  }
 
   const docRef = doc(db, STATE_COLLECTION, STATE_DOC_PATH);
 
   const unsubscribe = onSnapshot(
     docRef,
+    { includeMetadataChanges: true },
     (snapshot) => {
       if (snapshot.exists()) {
         const remoteData = snapshot.data() as Partial<SystemBackupData>;
-        if (onSyncStatusChange) onSyncStatusChange('connected');
+        if (onSyncStatusChange) {
+          // If data comes from cache and browser is offline, show offline; otherwise connected
+          if (snapshot.metadata.fromCache && typeof navigator !== 'undefined' && !navigator.onLine) {
+            onSyncStatusChange('offline');
+          } else {
+            onSyncStatusChange('connected');
+          }
+        }
 
         // Only update local state if this change originated from another browser/client
         if (!isLocalMutation) {
@@ -119,10 +144,19 @@ export function subscribeToFirestoreState(
       }
     },
     (error) => {
+      // Benign connection error / offline fallback
       handleFirestoreError(error, OperationType.GET, `${STATE_COLLECTION}/${STATE_DOC_PATH}`);
-      if (onSyncStatusChange) onSyncStatusChange('error');
+      if (onSyncStatusChange) {
+        onSyncStatusChange(typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : 'connected');
+      }
     }
   );
 
-  return unsubscribe;
+  return () => {
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    }
+    unsubscribe();
+  };
 }

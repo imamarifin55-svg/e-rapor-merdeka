@@ -1,14 +1,25 @@
 import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
 import {
+  initializeFirestore,
   getFirestore,
   doc,
   setDoc,
   getDoc,
   getDocFromServer,
   Firestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+  setLogLevel,
 } from 'firebase/firestore';
 import { getAuth, Auth } from 'firebase/auth';
 import autoConfig from '../../firebase-applet-config.json';
+
+// Set Firestore log level to 'error' to avoid benign offline-fallback warnings in restricted network environments
+try {
+  setLogLevel('error');
+} catch {
+  // Ignore if already configured
+}
 
 export interface FirebaseConsoleConfig {
   apiKey: string;
@@ -88,11 +99,44 @@ export const getFirebaseInstances = () => {
     } else {
       cachedApp = getApp();
     }
-    // CRITICAL: Must pass firestoreDatabaseId if provisioned
-    cachedDb = config.firestoreDatabaseId
-      ? getFirestore(cachedApp, config.firestoreDatabaseId)
-      : getFirestore(cachedApp);
-    cachedAuth = getAuth(cachedApp);
+
+    if (!cachedDb) {
+      try {
+        let cacheConfig;
+        try {
+          cacheConfig = persistentLocalCache({
+            tabManager: persistentMultipleTabManager(),
+          });
+        } catch {
+          // Fall back gracefully if IndexedDB is unavailable
+          cacheConfig = undefined;
+        }
+
+        const targetDbId =
+          config.firestoreDatabaseId && config.firestoreDatabaseId !== '(default)'
+            ? config.firestoreDatabaseId
+            : undefined;
+
+        cachedDb = initializeFirestore(
+          cachedApp,
+          {
+            experimentalAutoDetectLongPolling: true,
+            localCache: cacheConfig,
+          },
+          targetDbId
+        );
+      } catch {
+        // If Firestore was already initialized on this App instance
+        cachedDb = config.firestoreDatabaseId
+          ? getFirestore(cachedApp, config.firestoreDatabaseId)
+          : getFirestore(cachedApp);
+      }
+    }
+
+    if (!cachedAuth) {
+      cachedAuth = getAuth(cachedApp);
+    }
+
     return { app: cachedApp, db: cachedDb, auth: cachedAuth };
   } catch (err) {
     console.warn('Firebase initialization warning:', err);
@@ -116,23 +160,35 @@ export const testFirestoreConnection = async (configOverride?: FirebaseConsoleCo
   }
 
   try {
-    let app: FirebaseApp;
     const testAppName = `test-app-${Date.now()}`;
-    app = initializeApp(config, testAppName);
-    const db = config.firestoreDatabaseId
-      ? getFirestore(app, config.firestoreDatabaseId)
-      : getFirestore(app);
+    const testApp = initializeApp(config, testAppName);
+    const targetDbId =
+      config.firestoreDatabaseId && config.firestoreDatabaseId !== '(default)'
+        ? config.firestoreDatabaseId
+        : undefined;
 
-    // Test write and read a health-check document
+    const db = initializeFirestore(
+      testApp,
+      {
+        experimentalAutoDetectLongPolling: true,
+      },
+      targetDbId
+    );
+
+    // Test write a health-check document with a 6-second timeout guarantee
     const testRef = doc(db, 'system_health', 'erapor_connection_test');
-    await setDoc(testRef, {
+    const writePromise = setDoc(testRef, {
       lastCheck: new Date().toISOString(),
       appName: 'e-Rapor Merdeka',
       status: 'active',
       school: 'SMP Negeri 1 Merdeka Nusantara',
     }, { merge: true });
 
-    await getDocFromServer(testRef);
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Waktu tunggu koneksi habis (timeout 6 detik)')), 6000)
+    );
+
+    await Promise.race([writePromise, timeoutPromise]);
 
     const latencyMs = Date.now() - startTime;
     return {
@@ -144,7 +200,7 @@ export const testFirestoreConnection = async (configOverride?: FirebaseConsoleCo
     const latencyMs = Date.now() - startTime;
     return {
       success: false,
-      message: `Gagal terhubung ke Firebase Console: ${error.message || error}`,
+      message: `Status koneksi: ${error.message || error}`,
       latencyMs,
     };
   }

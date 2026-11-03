@@ -306,7 +306,7 @@ export const Navbar: React.FC<Props> = ({
               }`}
             >
               <FileSpreadsheet className="w-4 h-4" />
-              Kelola &amp; Input Nilai TP
+              Input Nilai STS (Rapor Sisipan)
             </button>
           )}
 

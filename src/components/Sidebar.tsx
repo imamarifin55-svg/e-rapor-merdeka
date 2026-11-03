@@ -217,7 +217,7 @@ export const Sidebar: React.FC<Props> = ({
             {!isCollapsed && <span>Dasbor Penilaian</span>}
           </button>
 
-          {/* 2. Grades Management */}
+          {/* 2. Input Nilai STS (Rapor Sisipan) */}
           {(currentSession.role === 'admin' || currentSession.role === 'guru' || currentSession.role === 'wali_kelas') && (
             <button
               onClick={() => handleSelectTab('grades')}
@@ -226,21 +226,44 @@ export const Sidebar: React.FC<Props> = ({
                   ? 'bg-blue-600 text-white shadow-md shadow-blue-900/30 font-bold'
                   : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/60'
               }`}
-              title="Kelola & Input Nilai TP"
+              title="Input Nilai Asli STS (Rapor Sisipan Tengah Semester)"
             >
               <div className="flex items-center gap-3 overflow-hidden">
                 <FileSpreadsheet className={`w-5 h-5 shrink-0 ${currentTab === 'grades' ? 'text-white' : 'text-slate-400'}`} />
-                {!isCollapsed && <span className="truncate">Kelola &amp; Nilai TP</span>}
+                {!isCollapsed && <span className="truncate">Input Nilai STS</span>}
               </div>
               {!isCollapsed && (
-                <span className="text-[10px] bg-slate-800 text-blue-300 font-bold px-1.5 py-0.5 rounded-full">
-                  Merdeka
+                <span className="text-[10px] bg-blue-950 text-blue-300 font-bold px-1.5 py-0.5 rounded-full border border-blue-800/40">
+                  Rapor Sisipan
                 </span>
               )}
             </button>
           )}
 
-          {/* 3. Students & Mass Excel */}
+          {/* 3. Teacher Management & e-Rapor Accounts (Menu Guru) */}
+          {currentSession.role === 'admin' && (
+            <button
+              onClick={() => handleSelectTab('teachers')}
+              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold transition ${
+                currentTab === 'teachers'
+                  ? 'bg-blue-600 text-white shadow-md shadow-blue-900/30 font-bold'
+                  : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/60'
+              }`}
+              title="Kelola Data Guru, Peran & Akun Login e-Rapor"
+            >
+              <div className="flex items-center gap-3 overflow-hidden">
+                <GraduationCap className={`w-5 h-5 shrink-0 ${currentTab === 'teachers' ? 'text-white' : 'text-slate-400'}`} />
+                {!isCollapsed && <span className="truncate">Data Guru &amp; Akun</span>}
+              </div>
+              {!isCollapsed && (
+                <span className="text-[10px] bg-slate-800 text-amber-300 font-bold px-1.5 py-0.5 rounded-full">
+                  {availableTeachers.length} Guru
+                </span>
+              )}
+            </button>
+          )}
+
+          {/* 4. Students & Mass Excel */}
           {(currentSession.role === 'admin' || currentSession.role === 'wali_kelas') && (
             <button
               onClick={() => handleSelectTab('students')}
@@ -355,10 +378,10 @@ export const Sidebar: React.FC<Props> = ({
                 ? 'bg-blue-600 text-white shadow-md shadow-blue-900/30 font-bold'
                 : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/60'
             }`}
-            title="Cetak Rapor & Leger PDF"
+            title="Cetak Rapor Sisipan STS & Leger Nilai"
           >
             <FileText className={`w-5 h-5 shrink-0 ${currentTab === 'reports' ? 'text-white' : 'text-slate-400'}`} />
-            {!isCollapsed && <span>Cetak Rapor PDF</span>}
+            {!isCollapsed && <span>Cetak Rapor STS</span>}
           </button>
 
           {/* 6. Backup & Recovery */}

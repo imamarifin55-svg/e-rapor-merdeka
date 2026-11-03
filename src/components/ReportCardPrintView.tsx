@@ -12,7 +12,6 @@ import {
 } from '../types/erapor';
 import {
   Printer,
-  FileDown,
   FileSpreadsheet,
   CheckCircle2,
   Calendar,
@@ -20,8 +19,18 @@ import {
   BookOpen,
   UserCheck,
   ChevronRight,
+  Sparkles,
+  AlertCircle,
+  FileText,
 } from 'lucide-react';
 import { exportLegerToExcel } from '../utils/excelHandler';
+import { getStsPredicate, getStsStatus, generateDefaultStsNote } from '../utils/gradeCalculations';
+import {
+  isReligionSubject,
+  getSubjectReligion,
+  getEligibleSubjectsForStudent,
+  sortKemdikbudSubjects,
+} from '../utils/subjectReligionHelper';
 
 interface Props {
   schoolProfile: SchoolProfile;
@@ -50,7 +59,8 @@ export const ReportCardPrintView: React.FC<Props> = ({
 }) => {
   const [selectedClassId, setSelectedClassId] = useState<string>(classes[0]?.id || 'cls-7-1');
   const [selectedStudentId, setSelectedStudentId] = useState<string>(students[0]?.id || 'std-01');
-  const [viewType, setViewType] = useState<'academic' | 'identity' | 'extracurricular' | 'leger'>('academic');
+  const [viewType, setViewType] = useState<'sts_report' | 'leger' | 'identity'>('sts_report');
+  const [onlyShowInputted, setOnlyShowInputted] = useState<boolean>(false);
 
   const selectedClass = classes.find((c) => c.id === selectedClassId) || classes[0];
   const classStudents = students.filter((s) => s.classId === selectedClassId);
@@ -79,6 +89,61 @@ export const ReportCardPrintView: React.FC<Props> = ({
     exportLegerToExcel(selectedClass, classStudents, subjects, grades);
   };
 
+  // Helper to extract student's raw STS grade for a subject
+  const getSubjectStsGrade = (subjectId: string, kktp: number) => {
+    const gr = studentGrades.find((g) => g.subjectId === subjectId);
+    let rawScore: number | null = null;
+    if (typeof gr?.stsScore === 'number') {
+      rawScore = gr.stsScore;
+    } else if (typeof gr?.sumatifTengahSemester === 'number') {
+      rawScore = gr.sumatifTengahSemester;
+    } else if (typeof gr?.nilaiAkhir === 'number' && gr.nilaiAkhir > 0) {
+      rawScore = gr.nilaiAkhir;
+    }
+
+    if (rawScore === null) {
+      return {
+        score: '-',
+        numericScore: 0,
+        predicate: '-',
+        status: 'Belum Diisi',
+        note: 'Nilai STS belum diinput oleh guru mata pelajaran.',
+      };
+    }
+
+    const predicate = getStsPredicate(rawScore, kktp);
+    const status = getStsStatus(rawScore, kktp);
+    const note = gr?.catatanSts || gr?.highestCompetencyNarrative || generateDefaultStsNote(rawScore, kktp);
+
+    return {
+      score: rawScore,
+      numericScore: rawScore,
+      predicate,
+      status,
+      note,
+    };
+  };
+
+  // 1. Dapatkan hanya mata pelajaran yang diambil siswa (1 mapel agama yang sesuai + mapel umum & mulok)
+  // Sesuai urutan baku resmi Kemdikbud
+  const enrolledStudentSubjects = getEligibleSubjectsForStudent(selectedStudent, subjects);
+
+  // 2. Filter mapel untuk tampilan cetak rapor (opsi: hanya tampilkan mapel yang sudah diisi nilai)
+  const displayedStudentSubjects = onlyShowInputted
+    ? enrolledStudentSubjects.filter((subj) => {
+        const gr = getSubjectStsGrade(subj.id, subj.kktp);
+        return typeof gr.score === 'number' && gr.score > 0;
+      })
+    : enrolledStudentSubjects;
+
+  // 3. Calculate student averages for STS (hanya dari mapel yang diambil siswa)
+  const evaluatedScores = enrolledStudentSubjects
+    .map((sub) => getSubjectStsGrade(sub.id, sub.kktp))
+    .filter((res) => typeof res.score === 'number' && res.score > 0);
+
+  const totalStsScore = evaluatedScores.reduce((acc, curr) => acc + (curr.numericScore || 0), 0);
+  const studentAvgSts = evaluatedScores.length > 0 ? (totalStsScore / evaluatedScores.length).toFixed(1) : '-';
+
   return (
     <div className="space-y-6">
       
@@ -88,7 +153,9 @@ export const ReportCardPrintView: React.FC<Props> = ({
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex flex-wrap items-center gap-3">
             <div>
-              <label className="text-[11px] font-semibold text-slate-500 block mb-1">Pilih Kelas</label>
+              <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block mb-1">
+                Pilih Kelas (12 Rombel)
+              </label>
               <select
                 value={selectedClassId}
                 onChange={(e) => {
@@ -100,26 +167,42 @@ export const ReportCardPrintView: React.FC<Props> = ({
               >
                 {classes.map((c) => (
                   <option key={c.id} value={c.id}>
-                    {c.name}
+                    {c.name} • Wali: {c.homeroomTeacherName}
                   </option>
                 ))}
               </select>
             </div>
 
             {viewType !== 'leger' && (
-              <div>
-                <label className="text-[11px] font-semibold text-slate-500 block mb-1">Pilih Siswa</label>
-                <select
-                  value={selectedStudentId}
-                  onChange={(e) => setSelectedStudentId(e.target.value)}
-                  className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:outline-hidden max-w-[260px]"
-                >
-                  {classStudents.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.nisn} - {s.name}
-                    </option>
-                  ))}
-                </select>
+              <div className="flex flex-wrap items-end gap-3">
+                <div>
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block mb-1">
+                    Pilih Siswa
+                  </label>
+                  <select
+                    value={selectedStudentId}
+                    onChange={(e) => setSelectedStudentId(e.target.value)}
+                    className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:outline-hidden max-w-[280px]"
+                  >
+                    {classStudents.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.nisn} - {s.name} ({s.religion || 'Islam'})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {viewType === 'sts_report' && (
+                  <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer select-none bg-slate-50 px-3 py-2 rounded-xl border border-slate-200 hover:bg-slate-100 transition h-[38px]">
+                    <input
+                      type="checkbox"
+                      checked={onlyShowInputted}
+                      onChange={(e) => setOnlyShowInputted(e.target.checked)}
+                      className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                    />
+                    <span>Hanya Tampilkan Mapel Yang Sudah Diisi Nilai</span>
+                  </label>
+                )}
               </div>
             )}
           </div>
@@ -132,7 +215,7 @@ export const ReportCardPrintView: React.FC<Props> = ({
                 className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-2 shadow-xs transition"
               >
                 <FileSpreadsheet className="w-4 h-4" />
-                Unduh Leger Nilai Excel
+                Unduh Leger Nilai STS (Excel)
               </button>
             ) : null}
 
@@ -149,97 +232,334 @@ export const ReportCardPrintView: React.FC<Props> = ({
         {/* View Mode Tabs */}
         <div className="flex border-t border-slate-100 pt-3 gap-2 overflow-x-auto text-xs">
           <button
-            onClick={() => setViewType('academic')}
-            className={`px-3.5 py-1.5 rounded-lg font-semibold transition ${
-              viewType === 'academic'
-                ? 'bg-blue-100 text-blue-800'
+            onClick={() => setViewType('sts_report')}
+            className={`px-3.5 py-1.5 rounded-lg font-bold transition flex items-center gap-1.5 ${
+              viewType === 'sts_report'
+                ? 'bg-blue-600 text-white shadow-xs'
                 : 'text-slate-600 hover:bg-slate-100'
             }`}
           >
-            1. Nilai &amp; Capaian Kompetensi (Utama)
-          </button>
-          <button
-            onClick={() => setViewType('extracurricular')}
-            className={`px-3.5 py-1.5 rounded-lg font-semibold transition ${
-              viewType === 'extracurricular'
-                ? 'bg-blue-100 text-blue-800'
-                : 'text-slate-600 hover:bg-slate-100'
-            }`}
-          >
-            2. Ekskul, Kehadiran &amp; Catatan Wali Kelas
-          </button>
-          <button
-            onClick={() => setViewType('identity')}
-            className={`px-3.5 py-1.5 rounded-lg font-semibold transition ${
-              viewType === 'identity'
-                ? 'bg-blue-100 text-blue-800'
-                : 'text-slate-600 hover:bg-slate-100'
-            }`}
-          >
-            3. Halaman Biodata Siswa Resmi
+            <FileText className="w-3.5 h-3.5" />
+            1. Rapor Sisipan STS (Per Siswa)
           </button>
           <button
             onClick={() => setViewType('leger')}
-            className={`px-3.5 py-1.5 rounded-lg font-semibold transition ${
+            className={`px-3.5 py-1.5 rounded-lg font-bold transition flex items-center gap-1.5 ${
               viewType === 'leger'
-                ? 'bg-indigo-100 text-indigo-800'
+                ? 'bg-blue-600 text-white shadow-xs'
                 : 'text-slate-600 hover:bg-slate-100'
             }`}
           >
-            4. Leger Nilai Kelas (Master Sheet)
+            <FileSpreadsheet className="w-3.5 h-3.5" />
+            2. Leger Nilai STS Kelas
+          </button>
+          <button
+            onClick={() => setViewType('identity')}
+            className={`px-3.5 py-1.5 rounded-lg font-bold transition flex items-center gap-1.5 ${
+              viewType === 'identity'
+                ? 'bg-blue-600 text-white shadow-xs'
+                : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            <UserCheck className="w-3.5 h-3.5" />
+            3. Biodata Siswa Resmi
           </button>
         </div>
 
       </div>
 
-      {/* Report Sheet Document (Printed or Previewed) */}
-      <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 sm:p-10 max-w-4xl mx-auto print-container">
+      {/* PRINTABLE CANVAS (Standard A4) */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-10 mx-auto max-w-4xl text-slate-800 print:border-none print:shadow-none print:p-0 print:m-0 print:max-w-none">
         
-        {/* LEGER VIEW */}
+        {/* VIEW 1: RAPOR SISIPAN STS PER SISWA */}
+        {viewType === 'sts_report' && (
+          <div className="space-y-6">
+            
+            {/* Kop Resmi Sekolah */}
+            <div className="border-b-4 border-double border-slate-900 pb-3 text-center space-y-0.5">
+              <h2 className="font-black text-xl tracking-wider text-slate-900 uppercase">
+                {schoolProfile.name}
+              </h2>
+              <p className="text-xs font-semibold text-slate-700">
+                NPSN: {schoolProfile.npsn} {schoolProfile.nss ? `| NSS: ${schoolProfile.nss}` : ''}
+              </p>
+              <p className="text-[11px] text-slate-600">
+                {schoolProfile.address}, {schoolProfile.village}, {schoolProfile.district}, {schoolProfile.city}, {schoolProfile.province}
+              </p>
+              <p className="text-[10px] text-slate-500">
+                Telp: {schoolProfile.phone} | Surel: {schoolProfile.email} | Laman: {schoolProfile.website}
+              </p>
+            </div>
+
+            {/* Document Title: Rapor Sisipan STS */}
+            <div className="text-center pt-1 space-y-1">
+              <h3 className="font-black text-lg uppercase tracking-wide text-slate-900">
+                LAPORAN HASIL ASESMEN TENGAH SEMESTER (STS)
+              </h3>
+              <p className="text-xs font-extrabold uppercase tracking-widest text-blue-700">
+                RAPOR SISIPAN KURIKULUM MERDEKA
+              </p>
+              <p className="text-[11px] text-slate-600 font-medium">
+                Tahun Ajaran {currentAcademicYear.year} • Semester {currentAcademicYear.semester}
+              </p>
+            </div>
+
+            {/* Student Info Grid */}
+            <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs text-slate-800 border border-slate-300 p-3 rounded-lg bg-slate-50/50">
+              <div className="flex">
+                <span className="w-36 font-semibold text-slate-600">Nama Peserta Didik</span>
+                <span className="font-bold text-slate-900">: {selectedStudent?.name}</span>
+              </div>
+              <div className="flex">
+                <span className="w-36 font-semibold text-slate-600">Kelas / Fase</span>
+                <span className="font-bold text-slate-900">: {selectedClass.name} / Fase {selectedClass.phase}</span>
+              </div>
+              <div className="flex">
+                <span className="w-36 font-semibold text-slate-600">NISN / NIS</span>
+                <span className="font-mono">: {selectedStudent?.nisn} / {selectedStudent?.nis}</span>
+              </div>
+              <div className="flex">
+                <span className="w-36 font-semibold text-slate-600">Semester</span>
+                <span>: {currentAcademicYear.semester}</span>
+              </div>
+              <div className="flex">
+                <span className="w-36 font-semibold text-slate-600">Nama Sekolah</span>
+                <span>: {schoolProfile.name}</span>
+              </div>
+              <div className="flex">
+                <span className="w-36 font-semibold text-slate-600">Tahun Pelajaran</span>
+                <span>: {currentAcademicYear.year}</span>
+              </div>
+            </div>
+
+            {/* STS Grades Table */}
+            <div>
+              <div className="mb-2 flex items-center justify-between">
+                <h4 className="font-extrabold text-xs uppercase tracking-wide text-slate-900">
+                  A. Capaian Nilai Asesmen Sumatif Tengah Semester (STS)
+                </h4>
+                <span className="text-[11px] font-semibold text-slate-500">
+                  * Nilai murni hasil tes STS siswa
+                </span>
+              </div>
+
+              <table className="w-full text-xs border border-slate-400 border-collapse">
+                <thead className="bg-slate-100 text-slate-900 font-bold border-b border-slate-400 text-center">
+                  <tr>
+                    <th className="p-2 border border-slate-300 w-8">No</th>
+                    <th className="p-2 border border-slate-300 text-left w-64">Mata Pelajaran</th>
+                    <th className="p-2 border border-slate-300 w-14">KKTP</th>
+                    <th className="p-2 border border-slate-300 w-24 bg-blue-50/60 font-black">
+                      Nilai STS
+                    </th>
+                    <th className="p-2 border border-slate-300 text-left">
+                      Catatan Capaian Kompetensi Guru Mata Pelajaran
+                    </th>
+                  </tr>
+                </thead>
+
+                <tbody className="divide-y divide-slate-300">
+                  {displayedStudentSubjects.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="p-6 text-center text-slate-500 font-medium">
+                        Belum ada nilai mata pelajaran yang diinput untuk siswa ini.
+                      </td>
+                    </tr>
+                  ) : (
+                    displayedStudentSubjects.map((subj, idx) => {
+                      const gradeData = getSubjectStsGrade(subj.id, subj.kktp);
+
+                      return (
+                        <tr key={subj.id} className="align-middle">
+                          <td className="p-2 border border-slate-300 text-center font-medium">
+                            {idx + 1}
+                          </td>
+                          <td className="p-2 border border-slate-300 font-bold text-slate-900">
+                            {subj.name}
+                          </td>
+                          <td className="p-2 border border-slate-300 text-center font-mono font-semibold text-slate-600">
+                            {subj.kktp}
+                          </td>
+                          <td className="p-2 border border-slate-300 text-center font-mono font-black text-sm bg-blue-50/30">
+                            {gradeData.score}
+                          </td>
+                          <td className="p-2 border border-slate-300 text-[11px] leading-relaxed text-slate-800">
+                            {gradeData.note}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+
+                {/* Summary Row */}
+                <tfoot className="bg-slate-100 font-bold border-t border-slate-400">
+                  <tr>
+                    <td colSpan={3} className="p-2 text-right pr-4 border border-slate-300">
+                      Rata-Rata Nilai STS:
+                    </td>
+                    <td className="p-2 text-center font-mono font-black text-blue-800 border border-slate-300 text-sm">
+                      {studentAvgSts}
+                    </td>
+                    <td className="p-2 text-left pl-3 text-[11px] text-slate-700 border border-slate-300">
+                      Rapor Sisipan Sumatif Tengah Semester (Nilai Murni STS Siswa)
+                    </td>
+                  </tr>
+                </tfoot>
+
+              </table>
+            </div>
+
+            {/* Attendance & Midterm Notes Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              
+              {/* B. Ketidakhadiran */}
+              <div className="space-y-1.5">
+                <h4 className="font-extrabold text-xs uppercase tracking-wide text-slate-900">
+                  B. Ketidakhadiran Tengah Semester
+                </h4>
+                <table className="w-full text-xs border border-slate-300 border-collapse">
+                  <tbody>
+                    <tr>
+                      <td className="p-2 border border-slate-300 font-medium w-48">1. Sakit</td>
+                      <td className="p-2 border border-slate-300 font-mono font-bold text-center">
+                        {studentAttendance.sakit} hari
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="p-2 border border-slate-300 font-medium">2. Izin</td>
+                      <td className="p-2 border border-slate-300 font-mono font-bold text-center">
+                        {studentAttendance.izin} hari
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="p-2 border border-slate-300 font-medium">3. Tanpa Keterangan</td>
+                      <td className="p-2 border border-slate-300 font-mono font-bold text-center">
+                        {studentAttendance.tanpaKeterangan} hari
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              {/* C. Catatan Wali Kelas */}
+              <div className="space-y-1.5">
+                <h4 className="font-extrabold text-xs uppercase tracking-wide text-slate-900">
+                  C. Catatan Perkembangan Wali Kelas
+                </h4>
+                <div className="border border-slate-300 p-2.5 rounded text-xs min-h-[92px] text-slate-800 leading-relaxed bg-slate-50/40">
+                  {studentNote?.notes ||
+                    'Tetap semangat dan terus tingkatkan kedisiplinan serta ketekunan belajar menghadapi pembelajaran tengah semester ke depan.'}
+                </div>
+              </div>
+
+            </div>
+
+            {/* Titimangsa & Tanda Tangan */}
+            <div className="grid grid-cols-3 pt-6 text-xs text-center gap-4 page-break-inside-avoid">
+              <div>
+                <p>Mengetahui,</p>
+                <p className="font-semibold mb-16">Orang Tua / Wali Murid</p>
+                <p className="font-bold underline">({selectedStudent?.parentName || '....................................'})</p>
+              </div>
+
+              <div>
+                <p>&nbsp;</p>
+                <p className="font-semibold mb-16">Wali Kelas,</p>
+                <p className="font-bold underline">{selectedClass.homeroomTeacherName}</p>
+                <p className="text-[11px]">NIP. 19810314 200501 1 008</p>
+              </div>
+
+              <div>
+                <p>{schoolProfile.reportPlace}, {schoolProfile.reportDate}</p>
+                <p className="font-semibold mb-16">Kepala Sekolah,</p>
+                <p className="font-bold underline">{schoolProfile.headmasterName}</p>
+                <p className="text-[11px]">NIP. {schoolProfile.headmasterNip}</p>
+              </div>
+            </div>
+
+          </div>
+        )}
+
+        {/* VIEW 2: LEGER NILAI STS KELAS */}
         {viewType === 'leger' && (
           <div className="space-y-6">
             <div className="text-center space-y-1 border-b-2 border-slate-800 pb-4">
-              <h2 className="font-extrabold text-base uppercase text-slate-900 tracking-wider">
-                LEGER NILAI HASIL BELAJAR SISWA
+              <h2 className="font-black text-base uppercase text-slate-900 tracking-wider">
+                LEGER NILAI ASESMEN SUMATIF TENGAH SEMESTER (STS)
               </h2>
               <p className="text-xs font-semibold text-slate-800">
                 {schoolProfile.name} • KELAS {selectedClass.name.toUpperCase()}
               </p>
               <p className="text-[11px] text-slate-600">
-                Tahun Ajaran {currentAcademicYear.year} Semester {currentAcademicYear.semester} ({schoolProfile.curriculum})
+                Tahun Ajaran {currentAcademicYear.year} Semester {currentAcademicYear.semester} (Rapor Sisipan / Murni STS)
               </p>
             </div>
 
             <div className="overflow-x-auto">
               <table className="w-full text-xs border border-slate-400 border-collapse">
-                <thead className="bg-slate-100 text-slate-900 font-bold border-b border-slate-400">
+                <thead className="bg-slate-100 text-slate-900 font-bold border-b border-slate-400 text-center">
                   <tr>
-                    <th className="p-2 border border-slate-300 text-center w-8">No</th>
-                    <th className="p-2 border border-slate-300 text-center w-24">NISN</th>
+                    <th className="p-2 border border-slate-300 w-8">No</th>
+                    <th className="p-2 border border-slate-300 w-24">NISN</th>
                     <th className="p-2 border border-slate-300 text-left min-w-[160px]">Nama Siswa</th>
-                    <th className="p-2 border border-slate-300 text-center w-10">JK</th>
-                    {subjects.map((sub) => (
-                      <th key={sub.id} className="p-1 border border-slate-300 text-center w-12" title={sub.name}>
+                    <th className="p-2 border border-slate-300 w-10">JK</th>
+                    <th className="p-2 border border-slate-300 w-16">Agama</th>
+                    <th className="p-1 border border-slate-300 w-14 bg-indigo-50 font-bold" title="Pendidikan Agama & Budi Pekerti (Sesuai Agama Siswa)">
+                      PAB
+                    </th>
+                    {sortKemdikbudSubjects(subjects.filter((s) => !isReligionSubject(s))).map((sub) => (
+                      <th key={sub.id} className="p-1 border border-slate-300 w-12" title={`${sub.code} - ${sub.name}`}>
                         {sub.code}
                       </th>
                     ))}
-                    <th className="p-2 border border-slate-300 text-center w-14 bg-slate-200">Total</th>
-                    <th className="p-2 border border-slate-300 text-center w-14 bg-slate-200">Rerata</th>
+                    <th className="p-2 border border-slate-300 w-14 bg-blue-100 text-blue-900 font-black">Total</th>
+                    <th className="p-2 border border-slate-300 w-14 bg-blue-100 text-blue-900 font-black">Rerata</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-300">
                   {classStudents.map((std, idx) => {
                     let total = 0;
                     let count = 0;
+                    const nonRelSubjects = sortKemdikbudSubjects(subjects.filter((s) => !isReligionSubject(s)));
+
+                    // 1. Nilai Agama Siswa
+                    const relSubj = subjects.find(
+                      (s) => isReligionSubject(s) && getSubjectReligion(s) === (std.religion || 'Islam')
+                    ) || subjects.find((s) => isReligionSubject(s));
+
+                    let relScore: number | '-' = '-';
+                    if (relSubj) {
+                      const g = grades.find((gr) => gr.studentId === std.id && gr.subjectId === relSubj.id);
+                      if (typeof g?.stsScore === 'number' && g.stsScore > 0) relScore = g.stsScore;
+                      else if (typeof g?.sumatifTengahSemester === 'number' && g.sumatifTengahSemester > 0) relScore = g.sumatifTengahSemester;
+                      else if (typeof g?.nilaiAkhir === 'number' && g.nilaiAkhir > 0) relScore = g.nilaiAkhir;
+                    }
+                    if (typeof relScore === 'number') {
+                      total += relScore;
+                      count++;
+                    }
+
                     return (
                       <tr key={std.id} className="hover:bg-slate-50">
                         <td className="p-1.5 border border-slate-300 text-center">{idx + 1}</td>
                         <td className="p-1.5 border border-slate-300 text-center font-mono text-[11px]">{std.nisn}</td>
                         <td className="p-1.5 border border-slate-300 font-medium">{std.name}</td>
                         <td className="p-1.5 border border-slate-300 text-center">{std.gender}</td>
-                        {subjects.map((sub) => {
+                        <td className="p-1.5 border border-slate-300 text-center text-[10px] font-semibold text-slate-600">
+                          {std.religion || 'Islam'}
+                        </td>
+                        <td className="p-1.5 border border-slate-300 text-center font-mono font-semibold bg-indigo-50/40">
+                          {relScore}
+                        </td>
+                        {nonRelSubjects.map((sub) => {
                           const g = grades.find((gr) => gr.studentId === std.id && gr.subjectId === sub.id);
-                          const score = g ? g.nilaiAkhir : '-';
+                          const score = typeof g?.stsScore === 'number' && g.stsScore > 0
+                            ? g.stsScore
+                            : (typeof g?.sumatifTengahSemester === 'number' && g.sumatifTengahSemester > 0
+                            ? g.sumatifTengahSemester
+                            : (typeof g?.nilaiAkhir === 'number' && g.nilaiAkhir > 0 ? g.nilaiAkhir : '-'));
+
                           if (typeof score === 'number') {
                             total += score;
                             count++;
@@ -279,307 +599,56 @@ export const ReportCardPrintView: React.FC<Props> = ({
           </div>
         )}
 
-        {/* ACADEMIC REPORT VIEW */}
-        {viewType === 'academic' && (
-          <div className="space-y-6">
-            
-            {/* Kop Resmi Sekolah */}
-            <div className="border-b-4 border-double border-slate-900 pb-3 text-center space-y-0.5">
-              <h2 className="font-black text-lg tracking-wider text-slate-900 uppercase">
-                {schoolProfile.name}
-              </h2>
-              <p className="text-xs text-slate-700">
-                NPSN: {schoolProfile.npsn} | NSS: {schoolProfile.nss || '-'}
-              </p>
-              <p className="text-[11px] text-slate-600">
-                {schoolProfile.address}, {schoolProfile.village}, {schoolProfile.district}, {schoolProfile.city}, {schoolProfile.province}
-              </p>
-              <p className="text-[10px] text-slate-500">
-                Telp: {schoolProfile.phone} | Surel: {schoolProfile.email} | Laman: {schoolProfile.website}
-              </p>
-            </div>
-
-            {/* Document Title */}
-            <div className="text-center pt-2">
-              <h3 className="font-extrabold text-base uppercase tracking-wider text-slate-900">
-                LAPORAN HASIL BELAJAR (RAPOR)
-              </h3>
-              <p className="text-xs font-semibold text-slate-700">
-                Standar Kurikulum Merdeka Kemendikbudristek
-              </p>
-            </div>
-
-            {/* Student Info Grid */}
-            <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs text-slate-800 border border-slate-300 p-3 rounded-lg bg-slate-50/50">
-              <div className="flex">
-                <span className="w-32 font-semibold">Nama Peserta Didik</span>
-                <span className="font-bold">: {selectedStudent?.name}</span>
-              </div>
-              <div className="flex">
-                <span className="w-32 font-semibold">Kelas / Fase</span>
-                <span className="font-bold">: {selectedClass.name} / Fase {selectedClass.phase}</span>
-              </div>
-              <div className="flex">
-                <span className="w-32 font-semibold">NISN / NIS</span>
-                <span className="font-mono">: {selectedStudent?.nisn} / {selectedStudent?.nis}</span>
-              </div>
-              <div className="flex">
-                <span className="w-32 font-semibold">Semester</span>
-                <span>: {currentAcademicYear.semester}</span>
-              </div>
-              <div className="flex">
-                <span className="w-32 font-semibold">Nama Sekolah</span>
-                <span>: {schoolProfile.name}</span>
-              </div>
-              <div className="flex">
-                <span className="w-32 font-semibold">Tahun Ajaran</span>
-                <span>: {currentAcademicYear.year}</span>
-              </div>
-            </div>
-
-            {/* Academic Grades Table */}
-            <div>
-              <table className="w-full text-xs border border-slate-400 border-collapse">
-                <thead className="bg-slate-100 text-slate-900 font-bold border-b border-slate-400">
-                  <tr>
-                    <th className="p-2.5 border border-slate-300 text-center w-8">No</th>
-                    <th className="p-2.5 border border-slate-300 text-left w-52">Mata Pelajaran</th>
-                    <th className="p-2.5 border border-slate-300 text-center w-20">Nilai Akhir</th>
-                    <th className="p-2.5 border border-slate-300 text-left">Capaian Kompetensi</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-300">
-                  {subjects.map((subj, idx) => {
-                    const grade = studentGrades.find((g) => g.subjectId === subj.id);
-                    const na = grade?.nilaiAkhir ?? '-';
-                    const highest = grade?.highestCompetencyNarrative || 'Menunjukkan penguasaan kompetensi dengan baik.';
-                    const lowest = grade?.lowestCompetencyNarrative || 'Mampu mempertahankan hasil belajar.';
-
-                    return (
-                      <tr key={subj.id} className="align-top">
-                        <td className="p-2 border border-slate-300 text-center font-medium">{idx + 1}</td>
-                        <td className="p-2 border border-slate-300 font-semibold text-slate-900">
-                          {subj.name}
-                        </td>
-                        <td className="p-2 border border-slate-300 text-center font-mono font-bold text-sm">
-                          {na}
-                        </td>
-                        <td className="p-2 border border-slate-300 text-[11px] leading-relaxed text-slate-800 space-y-1">
-                          <p>
-                            <span className="font-semibold text-emerald-800">• </span>
-                            {highest}
-                          </p>
-                          <p>
-                            <span className="font-semibold text-slate-600">• </span>
-                            {lowest}
-                          </p>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Titimangsa & Tanda Tangan */}
-            <div className="grid grid-cols-3 pt-6 text-xs text-center gap-4 page-break-inside-avoid">
-              <div>
-                <p>Mengetahui,</p>
-                <p className="font-semibold mb-16">Orang Tua / Wali Murid</p>
-                <p className="font-bold underline">({selectedStudent?.parentName || '....................................'})</p>
-              </div>
-
-              <div>
-                <p>&nbsp;</p>
-                <p className="font-semibold mb-16">Wali Kelas,</p>
-                <p className="font-bold underline">{selectedClass.homeroomTeacherName}</p>
-                <p className="text-[11px]">NIP. 19810314 200501 1 008</p>
-              </div>
-
-              <div>
-                <p>{schoolProfile.reportPlace}, {schoolProfile.reportDate}</p>
-                <p className="font-semibold mb-16">Kepala Sekolah,</p>
-                <p className="font-bold underline">{schoolProfile.headmasterName}</p>
-                <p className="text-[11px]">NIP. {schoolProfile.headmasterNip}</p>
-              </div>
-            </div>
-
-          </div>
-        )}
-
-        {/* EXTRACURRICULAR & ATTENDANCE VIEW */}
-        {viewType === 'extracurricular' && (
-          <div className="space-y-6">
-            
-            <div className="border-b border-slate-300 pb-3">
-              <h3 className="font-bold text-base text-slate-900 uppercase">
-                Ekstrakurikuler, Ketidakhadiran &amp; Catatan Perkembangan Siswa
-              </h3>
-              <p className="text-xs text-slate-600">
-                Nama Siswa: <strong>{selectedStudent?.name}</strong> | NISN: <strong>{selectedStudent?.nisn}</strong> | Kelas: <strong>{selectedClass.name}</strong>
-              </p>
-            </div>
-
-            {/* Ekstrakurikuler Table */}
-            <div className="space-y-2">
-              <h4 className="font-bold text-xs uppercase text-slate-800">A. Kegiatan Ekstrakurikuler</h4>
-              <table className="w-full text-xs border border-slate-400 border-collapse">
-                <thead className="bg-slate-100 text-slate-900 font-bold">
-                  <tr>
-                    <th className="p-2 border border-slate-300 text-center w-8">No</th>
-                    <th className="p-2 border border-slate-300 text-left w-56">Kegiatan Ekstrakurikuler</th>
-                    <th className="p-2 border border-slate-300 text-center w-28">Predikat</th>
-                    <th className="p-2 border border-slate-300 text-left">Keterangan</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-300">
-                  {studentExtracurriculars.length === 0 ? (
-                    <tr>
-                      <td colSpan={4} className="p-3 text-center text-slate-500 italic">
-                        Tidak ada catatan kegiatan ekstrakurikuler.
-                      </td>
-                    </tr>
-                  ) : (
-                    studentExtracurriculars.map((ekskul, idx) => (
-                      <tr key={ekskul.id}>
-                        <td className="p-2 border border-slate-300 text-center">{idx + 1}</td>
-                        <td className="p-2 border border-slate-300 font-semibold">{ekskul.name}</td>
-                        <td className="p-2 border border-slate-300 text-center font-bold">{ekskul.predicate}</td>
-                        <td className="p-2 border border-slate-300 text-[11px]">{ekskul.description}</td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Attendance Table */}
-            <div className="space-y-2">
-              <h4 className="font-bold text-xs uppercase text-slate-800">B. Ketidakhadiran (Absensi)</h4>
-              <div className="w-64">
-                <table className="w-full text-xs border border-slate-400 border-collapse">
-                  <tbody>
-                    <tr>
-                      <td className="p-2 border border-slate-300 font-medium">Sakit</td>
-                      <td className="p-2 border border-slate-300 text-center font-bold w-20">{studentAttendance.sakit} hari</td>
-                    </tr>
-                    <tr>
-                      <td className="p-2 border border-slate-300 font-medium">Izin</td>
-                      <td className="p-2 border border-slate-300 text-center font-bold w-20">{studentAttendance.izin} hari</td>
-                    </tr>
-                    <tr>
-                      <td className="p-2 border border-slate-300 font-medium">Tanpa Keterangan (Alpa)</td>
-                      <td className="p-2 border border-slate-300 text-center font-bold w-20">{studentAttendance.tanpaKeterangan} hari</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* Homeroom Notes */}
-            <div className="space-y-2">
-              <h4 className="font-bold text-xs uppercase text-slate-800">C. Catatan Wali Kelas</h4>
-              <div className="border border-slate-300 p-4 rounded-lg bg-slate-50 text-xs text-slate-800 leading-relaxed min-h-[70px]">
-                {studentNote?.notes || 'Tingkatkan terus motivasi belajarmu dan pertahankan prestasimu yang membanggakan!'}
-              </div>
-            </div>
-
-            {/* Decision Status if semester genap */}
-            <div className="space-y-2">
-              <h4 className="font-bold text-xs uppercase text-slate-800">D. Keputusan Hasil Belajar</h4>
-              <div className="border border-slate-300 p-3 rounded-lg bg-slate-50 text-xs font-semibold text-slate-800">
-                Berdasarkan hasil pencapaian kompetensi pada semester ini, peserta didik ditetapkan:{' '}
-                <span className="text-emerald-700 underline font-bold">
-                  {studentNote?.decision || 'Melanjutkan ke Semester Genap'}
-                </span>
-              </div>
-            </div>
-
-            {/* Signatures */}
-            <div className="grid grid-cols-2 pt-6 text-xs text-center page-break-inside-avoid">
-              <div>
-                <p>Mengetahui,</p>
-                <p className="font-semibold mb-16">Orang Tua / Wali</p>
-                <p className="font-bold underline">({selectedStudent?.parentName || '....................................'})</p>
-              </div>
-              <div>
-                <p>{schoolProfile.reportPlace}, {schoolProfile.reportDate}</p>
-                <p className="font-semibold mb-16">Wali Kelas,</p>
-                <p className="font-bold underline">{selectedClass.homeroomTeacherName}</p>
-                <p className="text-[11px]">NIP. 19810314 200501 1 008</p>
-              </div>
-            </div>
-
-          </div>
-        )}
-
-        {/* IDENTITY VIEW */}
+        {/* VIEW 3: BIODATA SISWA */}
         {viewType === 'identity' && (
           <div className="space-y-6">
-            <div className="text-center border-b-2 border-slate-900 pb-3">
-              <h2 className="font-extrabold text-base tracking-wider uppercase text-slate-900">
-                KETERANGAN TENTANG DIRI PESERTA DIDIK
-              </h2>
-              <p className="text-xs text-slate-600">Buku Induk &amp; Lembar Biodata Resmi Sekolah</p>
+            <div className="border-b-2 border-slate-800 pb-3 text-center">
+              <h3 className="font-black text-base uppercase text-slate-900">
+                LEMBAR BIODATA PESERTA DIDIK
+              </h3>
+              <p className="text-xs text-slate-600">{schoolProfile.name}</p>
             </div>
 
-            <div className="space-y-3 text-xs text-slate-800">
-              <div className="grid grid-cols-3 py-1.5 border-b border-slate-100">
-                <span className="font-semibold">1. Nama Lengkap Peserta Didik</span>
-                <span className="col-span-2 font-bold">: {selectedStudent?.name}</span>
-              </div>
-              <div className="grid grid-cols-3 py-1.5 border-b border-slate-100">
-                <span className="font-semibold">2. Nomor Induk Siswa Nasional (NISN)</span>
-                <span className="col-span-2 font-mono font-bold">: {selectedStudent?.nisn}</span>
-              </div>
-              <div className="grid grid-cols-3 py-1.5 border-b border-slate-100">
-                <span className="font-semibold">3. Nomor Induk Siswa (NIS)</span>
-                <span className="col-span-2 font-mono">: {selectedStudent?.nis}</span>
-              </div>
-              <div className="grid grid-cols-3 py-1.5 border-b border-slate-100">
-                <span className="font-semibold">4. Tempat, Tanggal Lahir</span>
-                <span className="col-span-2">: {selectedStudent?.birthPlace}, {selectedStudent?.birthDate}</span>
-              </div>
-              <div className="grid grid-cols-3 py-1.5 border-b border-slate-100">
-                <span className="font-semibold">5. Jenis Kelamin</span>
-                <span className="col-span-2">: {selectedStudent?.gender === 'L' ? 'Laki-laki' : 'Perempuan'}</span>
-              </div>
-              <div className="grid grid-cols-3 py-1.5 border-b border-slate-100">
-                <span className="font-semibold">6. Agama</span>
-                <span className="col-span-2">: {selectedStudent?.religion}</span>
-              </div>
-              <div className="grid grid-cols-3 py-1.5 border-b border-slate-100">
-                <span className="font-semibold">7. Alamat Peserta Didik</span>
-                <span className="col-span-2">: {selectedStudent?.address}</span>
-              </div>
-              <div className="grid grid-cols-3 py-1.5 border-b border-slate-100">
-                <span className="font-semibold">8. Nama Orang Tua / Wali</span>
-                <span className="col-span-2 font-semibold">: {selectedStudent?.parentName}</span>
-              </div>
-              <div className="grid grid-cols-3 py-1.5 border-b border-slate-100">
-                <span className="font-semibold">9. Nomor Telepon / HP Orang Tua</span>
-                <span className="col-span-2">: {selectedStudent?.parentPhone}</span>
-              </div>
-              <div className="grid grid-cols-3 py-1.5 border-b border-slate-100">
-                <span className="font-semibold">10. Diterima di Sekolah Ini</span>
-                <span className="col-span-2">: Di Kelas {selectedClass.name}, Tanggal 15 Juli 2025</span>
-              </div>
-            </div>
-
-            {/* Photo & Signature */}
-            <div className="grid grid-cols-2 pt-8 text-xs items-center">
-              <div className="flex justify-center">
-                <div className="w-28 h-36 border-2 border-dashed border-slate-400 flex items-center justify-center text-slate-400 text-[10px] text-center p-2 rounded">
-                  Pas Foto Siswa<br />3 x 4 cm
-                </div>
-              </div>
-              <div className="text-center">
-                <p>{schoolProfile.reportPlace}, 15 Juli 2025</p>
-                <p className="font-semibold mb-16">Kepala Sekolah,</p>
-                <p className="font-bold underline">{schoolProfile.headmasterName}</p>
-                <p className="text-[11px]">NIP. {schoolProfile.headmasterNip}</p>
-              </div>
-            </div>
+            <table className="w-full text-xs border border-slate-300 border-collapse">
+              <tbody>
+                <tr>
+                  <td className="p-2 border border-slate-300 font-semibold w-48">Nama Lengkap</td>
+                  <td className="p-2 border border-slate-300 font-bold">{selectedStudent?.name}</td>
+                </tr>
+                <tr>
+                  <td className="p-2 border border-slate-300 font-semibold">Nomor Induk Siswa Nasional (NISN)</td>
+                  <td className="p-2 border border-slate-300 font-mono">{selectedStudent?.nisn}</td>
+                </tr>
+                <tr>
+                  <td className="p-2 border border-slate-300 font-semibold">Nomor Induk Siswa (NIS)</td>
+                  <td className="p-2 border border-slate-300 font-mono">{selectedStudent?.nis}</td>
+                </tr>
+                <tr>
+                  <td className="p-2 border border-slate-300 font-semibold">Tempat, Tanggal Lahir</td>
+                  <td className="p-2 border border-slate-300">{selectedStudent?.birthPlace}, {selectedStudent?.birthDate}</td>
+                </tr>
+                <tr>
+                  <td className="p-2 border border-slate-300 font-semibold">Jenis Kelamin</td>
+                  <td className="p-2 border border-slate-300">{selectedStudent?.gender === 'L' ? 'Laki-laki' : 'Perempuan'}</td>
+                </tr>
+                <tr>
+                  <td className="p-2 border border-slate-300 font-semibold">Agama</td>
+                  <td className="p-2 border border-slate-300">{selectedStudent?.religion}</td>
+                </tr>
+                <tr>
+                  <td className="p-2 border border-slate-300 font-semibold">Nama Orang Tua / Wali</td>
+                  <td className="p-2 border border-slate-300">{selectedStudent?.parentName}</td>
+                </tr>
+                <tr>
+                  <td className="p-2 border border-slate-300 font-semibold">Nomor Telepon Orang Tua</td>
+                  <td className="p-2 border border-slate-300 font-mono">{selectedStudent?.parentPhone}</td>
+                </tr>
+                <tr>
+                  <td className="p-2 border border-slate-300 font-semibold">Alamat Tempat Tinggal</td>
+                  <td className="p-2 border border-slate-300">{selectedStudent?.address}</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         )}
 

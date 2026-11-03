@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Student,
   Subject,
@@ -14,27 +14,50 @@ import {
   RefreshCw,
   Lock,
   Unlock,
-  Plus,
-  Trash2,
   CheckCircle2,
   AlertCircle,
   Sparkles,
   Search,
+  Save,
+  CloudUpload,
+  Clock,
+  Check,
+  Award,
+  BookOpen,
+  Filter,
+  CheckSquare,
+  AlertTriangle,
+  Info,
+  Users,
+  GraduationCap,
+  ChevronDown,
+  UserPlus,
   HelpCircle,
+  FileCheck,
 } from 'lucide-react';
-import { calculateSubjectFinalGrade } from '../utils/gradeCalculations';
+import {
+  calculatePureStsGrade,
+  generateDefaultStsNote,
+} from '../utils/gradeCalculations';
 import { downloadGradeTemplateExcel, parseGradesFromExcel } from '../utils/excelHandler';
+import {
+  isReligionSubject,
+  getSubjectReligion,
+  getEligibleStudentsForSubject,
+  sortKemdikbudSubjects,
+} from '../utils/subjectReligionHelper';
 
 interface Props {
   currentSession: UserSession;
   classes: ClassRoom[];
   subjects: Subject[];
   students: Student[];
-  learningObjectives: LearningObjective[];
+  learningObjectives?: LearningObjective[];
   grades: GradeRecord[];
   onUpdateGrades: (updatedGrades: GradeRecord[]) => void;
-  onAddLearningObjective: (newTp: LearningObjective) => void;
-  onDeleteLearningObjective: (tpId: string) => void;
+  onUpdateStudents?: (updatedStudents: Student[]) => void;
+  onAddLearningObjective?: (newTp: LearningObjective) => void;
+  onDeleteLearningObjective?: (tpId: string) => void;
 }
 
 export const GradeManagementView: React.FC<Props> = ({
@@ -42,61 +65,124 @@ export const GradeManagementView: React.FC<Props> = ({
   classes,
   subjects,
   students,
-  learningObjectives,
   grades,
   onUpdateGrades,
-  onAddLearningObjective,
-  onDeleteLearningObjective,
+  onUpdateStudents,
 }) => {
-  const defaultClassId = currentSession.assignedClass || classes[0]?.id || 'cls-7-1';
-  const defaultSubjId = (currentSession.assignedSubjectIds && currentSession.assignedSubjectIds[0]) || subjects[3]?.id || 'sub-mtk';
+  // Ensure valid initial class ID
+  const initialClassId = (() => {
+    if (currentSession.assignedClass && classes.some((c) => c.id === currentSession.assignedClass)) {
+      return currentSession.assignedClass;
+    }
+    return classes[0]?.id || 'cls-7-1';
+  })();
 
-  const [selectedClassId, setSelectedClassId] = useState<string>(defaultClassId);
-  const [selectedSubjectId, setSelectedSubjectId] = useState<string>(defaultSubjId);
+  // Ensure valid initial subject ID
+  const initialSubjId = (() => {
+    const assignedSubjs = currentSession.assignedSubjectIds;
+    if (
+      assignedSubjs &&
+      assignedSubjs[0] &&
+      subjects.some((s) => s.id === assignedSubjs[0])
+    ) {
+      return assignedSubjs[0];
+    }
+    return subjects[3]?.id || subjects[0]?.id || 'sub-mtk';
+  })();
+
+  const [selectedGradeFilter, setSelectedGradeFilter] = useState<'all' | '7' | '8' | '9'>('all');
+  const [selectedClassId, setSelectedClassId] = useState<string>(initialClassId);
+  const [selectedSubjectId, setSelectedSubjectId] = useState<string>(initialSubjId);
   const [searchQuery, setSearchQuery] = useState('');
   const [isLocked, setIsLocked] = useState(false);
   const [uploadSuccessNotice, setUploadSuccessNotice] = useState<string | null>(null);
-  const [showTpModal, setShowTpModal] = useState(false);
-  const [newTpCode, setNewTpCode] = useState('TP 5');
-  const [newTpDesc, setNewTpDesc] = useState('');
 
+  // Auto-Save and Cloud status
+  const [isSaving, setIsSaving] = useState(false);
+  const [lastSavedTime, setLastSavedTime] = useState<string>('Tersimpan di Cloud');
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState<boolean>(false);
+
+  // References for inputs for quick arrow/enter navigation
+  const scoreInputsRef = useRef<(HTMLInputElement | null)[]>([]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
+  // Selected Class and Subject objects
+  const sortedSubjects = sortKemdikbudSubjects(subjects);
   const selectedClass = classes.find((c) => c.id === selectedClassId) || classes[0];
-  const selectedSubject = subjects.find((s) => s.id === selectedSubjectId) || subjects[0];
+  const selectedSubject = subjects.find((s) => s.id === selectedSubjectId) || sortedSubjects[0] || subjects[0];
+  const kktp = selectedSubject?.kktp || 75;
+  const subjectReligion = getSubjectReligion(selectedSubject);
 
-  // Filter students belonging to this class
-  const classStudents = students.filter((s) => s.classId === selectedClassId);
+  // Filter classes based on grade filter
+  const filteredClasses = classes.filter((cls) => {
+    if (selectedGradeFilter === 'all') return true;
+    return String(cls.gradeLevel) === selectedGradeFilter;
+  });
 
-  // Filter TPs for this subject and class
-  const activeTps = learningObjectives.filter(
-    (tp) => tp.subjectId === selectedSubjectId && tp.classId === selectedClassId
-  );
+  // Keep selectedClassId valid when filter changes
+  useEffect(() => {
+    if (filteredClasses.length > 0 && !filteredClasses.some((c) => c.id === selectedClassId)) {
+      setSelectedClassId(filteredClasses[0].id);
+    }
+  }, [selectedGradeFilter, filteredClasses, selectedClassId]);
+
+  // Robust student matching for this class
+  const classStudents = students.filter((s) => {
+    if (s.classId === selectedClassId) return true;
+    if (selectedClass && s.className && s.className.toLowerCase() === selectedClass.name.toLowerCase()) return true;
+    // Normalized comparison (e.g. 'cls-7-1' -> '71', '7.1' -> '71')
+    const normClassId = selectedClassId.replace(/[^0-9]/g, '');
+    const normStudentClass = (s.classId || '').replace(/[^0-9]/g, '');
+    if (normClassId && normStudentClass && normClassId === normStudentClass) return true;
+    return false;
+  });
+
+  // Filter siswa yang berhak mengikuti mapel ini (Khusus Agama vs Seluruh Siswa Rombel)
+  const eligibleStudents = getEligibleStudentsForSubject(selectedSubject, classStudents);
 
   // Filter students based on search query
-  const filteredStudents = classStudents.filter((s) =>
+  const filteredStudents = eligibleStudents.filter((s) =>
     s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    s.nisn.includes(searchQuery)
+    s.nisn.includes(searchQuery) ||
+    s.nis.includes(searchQuery)
   );
 
-  // Handle score change in real-time
-  const handleScoreChange = (
-    studentId: string,
-    tpId: string,
-    valueStr: string
-  ) => {
+  // Helper to extract grade record
+  const getGradeForStudent = (studentId: string): GradeRecord | undefined => {
+    return grades.find((g) => g.studentId === studentId && g.subjectId === selectedSubjectId);
+  };
+
+  // Helper to extract raw STS score
+  const getStsScore = (studentId: string): number | '' => {
+    const rec = getGradeForStudent(studentId);
+    if (!rec) return '';
+    if (typeof rec.stsScore === 'number') return rec.stsScore;
+    if (typeof rec.sumatifTengahSemester === 'number') return rec.sumatifTengahSemester;
+    if (typeof rec.nilaiAkhir === 'number' && rec.nilaiAkhir > 0) return rec.nilaiAkhir;
+    return '';
+  };
+
+  // Helper to get teacher note
+  const getTeacherNote = (studentId: string): string => {
+    const rec = getGradeForStudent(studentId);
+    if (rec?.catatanSts && rec.catatanSts.trim() !== '') return rec.catatanSts;
+    if (rec?.highestCompetencyNarrative && rec.highestCompetencyNarrative.trim() !== '') return rec.highestCompetencyNarrative;
+    const score = getStsScore(studentId);
+    if (typeof score === 'number') {
+      return generateDefaultStsNote(score, kktp, selectedSubject?.name || 'Mata Pelajaran');
+    }
+    return '';
+  };
+
+  // Handle pure STS score change (real raw score 0-100)
+  const handleStsScoreChange = (studentId: string, valueStr: string) => {
     if (isLocked) return;
-    const val = valueStr === '' ? 0 : Math.max(0, Math.min(100, Number(valueStr)));
 
-    // Find or create grade record
-    const existing = grades.find(
-      (g) => g.studentId === studentId && g.subjectId === selectedSubjectId
-    );
+    const rawScore = valueStr === '' ? 0 : Math.max(0, Math.min(100, Math.round(Number(valueStr))));
+    const existing = grades.find((g) => g.studentId === studentId && g.subjectId === selectedSubjectId);
+    const existingNote = existing?.catatanSts || existing?.highestCompetencyNarrative;
 
-    const sumatif = existing ? { ...existing.sumatifScores, [tpId]: val } : { [tpId]: val };
-    const sas = existing ? existing.sumatifAkhirSemester : 80;
-
-    const calc = calculateSubjectFinalGrade(sumatif, sas, selectedSubject, activeTps);
+    const calc = calculatePureStsGrade(rawScore, kktp, existingNote, selectedSubject.name);
 
     const updatedRecord: GradeRecord = {
       id: existing ? existing.id : `grd-${studentId}-${selectedSubjectId}`,
@@ -105,32 +191,36 @@ export const GradeManagementView: React.FC<Props> = ({
       classId: selectedClassId,
       semester: 'Ganjil',
       academicYearId: 'ay-2025-1',
-      formatifScores: existing ? existing.formatifScores : {},
-      sumatifScores: sumatif,
-      sumatifAkhirSemester: sas,
-      nilaiAkhir: calc.nilaiAkhir,
-      highestCompetencyNarrative: calc.highestNarrative,
-      lowestCompetencyNarrative: calc.lowestNarrative,
+      stsScore: calc.stsScore,
+      sumatifTengahSemester: calc.stsScore,
+      nilaiAkhir: calc.nilaiAkhir, // Raw score is the final score
+      catatanSts: calc.catatanSts,
+      statusSts: calc.status,
+      predikatSts: calc.predikat,
+      highestCompetencyNarrative: calc.catatanSts,
+      lowestCompetencyNarrative: calc.status === 'Tuntas'
+        ? 'Memenuhi ketuntasan asesmen tengah semester (STS).'
+        : `Belum tuntas KKTP (${kktp}), membutuhkan tindak lanjut atau bimbingan.`,
     };
 
     const newGrades = grades.some((g) => g.studentId === studentId && g.subjectId === selectedSubjectId)
       ? grades.map((g) => (g.studentId === studentId && g.subjectId === selectedSubjectId ? updatedRecord : g))
       : [...grades, updatedRecord];
 
+    setHasUnsavedChanges(true);
     onUpdateGrades(newGrades);
   };
 
-  // Handle SAS (Sumatif Akhir Semester) change
-  const handleSasChange = (studentId: string, valueStr: string) => {
+  // Handle note change
+  const handleNoteChange = (studentId: string, noteStr: string) => {
     if (isLocked) return;
-    const sasVal = valueStr === '' ? 0 : Math.max(0, Math.min(100, Number(valueStr)));
 
-    const existing = grades.find(
-      (g) => g.studentId === studentId && g.subjectId === selectedSubjectId
-    );
-    const sumatif = existing ? existing.sumatifScores : {};
+    const existing = grades.find((g) => g.studentId === studentId && g.subjectId === selectedSubjectId);
+    const currentScore = typeof existing?.stsScore === 'number'
+      ? existing.stsScore
+      : (typeof existing?.nilaiAkhir === 'number' ? existing.nilaiAkhir : 80);
 
-    const calc = calculateSubjectFinalGrade(sumatif, sasVal, selectedSubject, activeTps);
+    const calc = calculatePureStsGrade(currentScore, kktp, noteStr, selectedSubject.name);
 
     const updatedRecord: GradeRecord = {
       id: existing ? existing.id : `grd-${studentId}-${selectedSubjectId}`,
@@ -139,502 +229,888 @@ export const GradeManagementView: React.FC<Props> = ({
       classId: selectedClassId,
       semester: 'Ganjil',
       academicYearId: 'ay-2025-1',
-      formatifScores: existing ? existing.formatifScores : {},
-      sumatifScores: sumatif,
-      sumatifAkhirSemester: sasVal,
+      stsScore: calc.stsScore,
+      sumatifTengahSemester: calc.stsScore,
       nilaiAkhir: calc.nilaiAkhir,
-      highestCompetencyNarrative: calc.highestNarrative,
-      lowestCompetencyNarrative: calc.lowestNarrative,
+      catatanSts: noteStr,
+      statusSts: calc.status,
+      predikatSts: calc.predikat,
+      highestCompetencyNarrative: noteStr,
     };
 
     const newGrades = grades.some((g) => g.studentId === studentId && g.subjectId === selectedSubjectId)
       ? grades.map((g) => (g.studentId === studentId && g.subjectId === selectedSubjectId ? updatedRecord : g))
       : [...grades, updatedRecord];
 
+    setHasUnsavedChanges(true);
     onUpdateGrades(newGrades);
   };
 
-  // Recalculate all grades and narratives
-  const handleRecalculateAll = () => {
-    const updated = grades.map((g) => {
-      if (g.subjectId === selectedSubjectId && g.classId === selectedClassId) {
-        const calc = calculateSubjectFinalGrade(
-          g.sumatifScores,
-          g.sumatifAkhirSemester,
-          selectedSubject,
-          activeTps
-        );
-        return {
-          ...g,
-          nilaiAkhir: calc.nilaiAkhir,
-          highestCompetencyNarrative: calc.highestNarrative,
-          lowestCompetencyNarrative: calc.lowestNarrative,
+  // Apply Kemdikbud preset notes (STS Murni tanpa ketuntasan/predikat)
+  const handleApplyPresetNote = (studentId: string, presetType: 'sangat_baik' | 'baik' | 'cukup' | 'perlu_bimbingan') => {
+    let note = '';
+    const subName = selectedSubject.name;
+    if (presetType === 'sangat_baik') {
+      note = `Menunjukkan penguasaan materi yang sangat unggul pada asesmen tengah semester ${subName}. Pertahankan prestasi belajarmu.`;
+    } else if (presetType === 'baik') {
+      note = `Memahami konsep-konsep materi asesmen tengah semester ${subName} dengan baik.`;
+    } else if (presetType === 'cukup') {
+      note = `Mencapai capaian tengah semester dalam ${subName}. Perlu memperbanyak latihan mandiri.`;
+    } else {
+      note = `Memerlukan bimbingan dan pendampingan berkala dalam memahami materi ${subName}.`;
+    }
+    handleNoteChange(studentId, note);
+  };
+
+  // Quick Action 1: Fill all empty/zero with KKTP
+  const handleQuickFillKktp = () => {
+    if (isLocked || eligibleStudents.length === 0) return;
+    if (!window.confirm(`Isi semua siswa yang belum memiliki nilai dengan nilai dasar KKTP (${kktp})?`)) return;
+
+    let updatedGrades = [...grades];
+    eligibleStudents.forEach((st) => {
+      const current = getStsScore(st.id);
+      if (typeof current !== 'number' || current === 0) {
+        const calc = calculatePureStsGrade(kktp, kktp, '', selectedSubject.name);
+        const existingIdx = updatedGrades.findIndex((g) => g.studentId === st.id && g.subjectId === selectedSubjectId);
+        const rec: GradeRecord = {
+          id: existingIdx >= 0 ? updatedGrades[existingIdx].id : `grd-${st.id}-${selectedSubjectId}`,
+          studentId: st.id,
+          subjectId: selectedSubjectId,
+          classId: selectedClassId,
+          semester: 'Ganjil',
+          academicYearId: 'ay-2025-1',
+          stsScore: kktp,
+          sumatifTengahSemester: kktp,
+          nilaiAkhir: kktp,
+          catatanSts: calc.catatanSts,
+          statusSts: calc.status,
+          predikatSts: calc.predikat,
+          highestCompetencyNarrative: calc.catatanSts,
         };
+        if (existingIdx >= 0) {
+          updatedGrades[existingIdx] = rec;
+        } else {
+          updatedGrades.push(rec);
+        }
       }
-      return g;
     });
 
-    onUpdateGrades(updated);
-    setUploadSuccessNotice('Seluruh Nilai Akhir & Narasi Capaian Kurikulum Merdeka berhasil dikalkulasi ulang!');
+    onUpdateGrades(updatedGrades);
+    setHasUnsavedChanges(true);
+    setUploadSuccessNotice(`Semua siswa berhasil diisi nilai KKTP (${kktp}).`);
+    setTimeout(() => setUploadSuccessNotice(null), 3000);
+  };
+
+  // Quick Action 2: Generate Kemdikbud auto-narratives for all students
+  const handleGenerateAllNarratives = () => {
+    if (isLocked || eligibleStudents.length === 0) return;
+
+    let updatedGrades = [...grades];
+    eligibleStudents.forEach((st) => {
+      const score = getStsScore(st.id);
+      const numScore = typeof score === 'number' ? score : kktp;
+      const note = generateDefaultStsNote(numScore, kktp, selectedSubject.name);
+      const calc = calculatePureStsGrade(numScore, kktp, note, selectedSubject.name);
+
+      const existingIdx = updatedGrades.findIndex((g) => g.studentId === st.id && g.subjectId === selectedSubjectId);
+      const rec: GradeRecord = {
+        id: existingIdx >= 0 ? updatedGrades[existingIdx].id : `grd-${st.id}-${selectedSubjectId}`,
+        studentId: st.id,
+        subjectId: selectedSubjectId,
+        classId: selectedClassId,
+        semester: 'Ganjil',
+        academicYearId: 'ay-2025-1',
+        stsScore: numScore,
+        sumatifTengahSemester: numScore,
+        nilaiAkhir: numScore,
+        catatanSts: note,
+        statusSts: calc.status,
+        predikatSts: calc.predikat,
+        highestCompetencyNarrative: note,
+      };
+
+      if (existingIdx >= 0) {
+        updatedGrades[existingIdx] = rec;
+      } else {
+        updatedGrades.push(rec);
+      }
+    });
+
+    onUpdateGrades(updatedGrades);
+    setHasUnsavedChanges(true);
+    setUploadSuccessNotice('Narasi capaian kompetensi standar Kemdikbud berhasil digenerate untuk seluruh siswa.');
     setTimeout(() => setUploadSuccessNotice(null), 3500);
   };
 
-  // Download teacher Excel template
-  const handleDownloadTemplate = () => {
-    downloadGradeTemplateExcel(selectedSubject, selectedClass, classStudents, activeTps);
+  // Quick Action 3: Auto-Populate Students when class is empty!
+  const handleAutoPopulateStudentsForClass = () => {
+    const defaultRoster = [
+      { name: 'Aditya Pratama Putra', gender: 'L' as const },
+      { name: 'Aisyah Putri Azzahra', gender: 'P' as const },
+      { name: 'Bima Satria Yudha', gender: 'L' as const },
+      { name: 'Citra Dewi Lestari', gender: 'P' as const },
+      { name: 'Daffa Rizky Ramadhan', gender: 'L' as const },
+      { name: 'Farhan Maulana Hakim', gender: 'L' as const },
+      { name: 'Gita Nirmala Sari', gender: 'P' as const },
+      { name: 'Jonathan Christopher', gender: 'L' as const },
+      { name: 'Nayla Salsabila', gender: 'P' as const },
+      { name: 'Rian Bagus Nugroho', gender: 'L' as const },
+    ];
+
+    const gradeLevel = selectedClass?.gradeLevel || 7;
+    const yearPrefix = gradeLevel === 7 ? '25' : gradeLevel === 8 ? '24' : '23';
+
+    const newStudents: Student[] = defaultRoster.map((st, idx) => ({
+      id: `std-${selectedClassId}-${Date.now()}-${idx + 1}`,
+      nis: `${yearPrefix}07${String(idx + 1).padStart(2, '0')}`,
+      nisn: `00${9 - (gradeLevel - 7)}9123${String(Math.floor(100 + Math.random() * 899))}`,
+      name: st.name,
+      gender: st.gender,
+      birthPlace: 'Semarang',
+      birthDate: `${10 + idx} Mei 201${12 - gradeLevel}`,
+      religion: st.name.includes('Christopher') ? 'Kristen' : 'Islam',
+      classId: selectedClassId,
+      className: selectedClass?.name || 'Kelas Terpilih',
+      parentName: `Bpk/Ibu ${st.name.split(' ')[0]}`,
+      parentPhone: `081234567${idx}0`,
+      address: `Jl. Pendidikan No. ${idx + 1}, Semarang`,
+    }));
+
+    // Generate initial grades for them
+    const newGradesList = [...grades];
+    newStudents.forEach((st, sIdx) => {
+      subjects.forEach((sub, subIdx) => {
+        const subKktp = sub.kktp || 75;
+        const score = 75 + ((sIdx * 6 + subIdx * 4) % 22);
+        const isTuntas = score >= subKktp;
+        const pred = score >= 90 ? 'A' : score >= subKktp ? 'B' : score >= subKktp - 10 ? 'C' : 'D';
+        const note = isTuntas
+          ? `Menunjukkan penguasaan materi yang sangat baik pada asesmen tengah semester (STS) ${sub.name}.`
+          : `Memerlukan bimbingan berkala dalam penguasaan materi tengah semester ${sub.name}.`;
+
+        newGradesList.push({
+          id: `grd-${st.id}-${sub.id}`,
+          studentId: st.id,
+          subjectId: sub.id,
+          classId: selectedClassId,
+          semester: 'Ganjil',
+          academicYearId: 'ay-2025-1',
+          stsScore: score,
+          sumatifTengahSemester: score,
+          nilaiAkhir: score,
+          catatanSts: note,
+          statusSts: isTuntas ? 'Tuntas' : 'Belum Tuntas',
+          predikatSts: pred,
+          highestCompetencyNarrative: note,
+          lowestCompetencyNarrative: isTuntas ? 'Tuntas KKTP.' : `Belum mencapai KKTP (${subKktp}).`,
+        });
+      });
+    });
+
+    if (onUpdateStudents) {
+      onUpdateStudents([...students, ...newStudents]);
+    }
+    onUpdateGrades(newGradesList);
+    setHasUnsavedChanges(true);
+    setUploadSuccessNotice(`Berhasil menambahkan 10 siswa otomatis ke ${selectedClass?.name}!`);
+    setTimeout(() => setUploadSuccessNotice(null), 4000);
   };
 
-  // Upload Excel file and apply
+  // Save Grades to Cloud Firestore
+  const handleSaveGradesToCloud = () => {
+    setIsSaving(true);
+    onUpdateGrades([...grades]);
+    setTimeout(() => {
+      setIsSaving(false);
+      setHasUnsavedChanges(false);
+      const now = new Date();
+      const timeStr = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      setLastSavedTime(`Pukul ${timeStr}`);
+      setUploadSuccessNotice(`Nilai Asli STS ${selectedSubject.name} (${selectedClass.name}) Berhasil Disimpan ke Cloud Firestore!`);
+      setTimeout(() => setUploadSuccessNotice(null), 4000);
+    }, 500);
+  };
+
+  // Download teacher Excel template (Official Kemdikbud STS)
+  const handleDownloadTemplate = () => {
+    downloadGradeTemplateExcel(selectedSubject, selectedClass, eligibleStudents);
+    setUploadSuccessNotice(`Format Excel Nilai STS ${selectedSubject.code} untuk ${selectedClass.name} (${eligibleStudents.length} siswa) berhasil diunduh.`);
+    setTimeout(() => setUploadSuccessNotice(null), 3000);
+  };
+
+  // Upload Excel trigger
+  const handleTriggerUpload = () => {
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+      fileInputRef.current.click();
+    }
+  };
+
+  // Handle uploaded Excel file
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     try {
-      const parsedResults = await parseGradesFromExcel(file, activeTps);
-      let matchCount = 0;
+      const parsed = await parseGradesFromExcel(file);
+      if (parsed.length === 0) {
+        alert('Tidak ada data nilai yang dapat diproses dari berkas Excel tersebut.');
+        return;
+      }
 
-      let workingGrades = [...grades];
+      let matchedCount = 0;
+      const updatedGrades = [...grades];
 
-      parsedResults.forEach((item) => {
-        const student = classStudents.find((s) => s.nisn === item.nisn || s.nis === item.nisn);
+      parsed.forEach((row) => {
+        const student = eligibleStudents.find((s) => s.nisn === row.nisn || s.nis === row.nisn);
         if (!student) return;
 
-        matchCount++;
-        const calc = calculateSubjectFinalGrade(
-          item.sumatifScores,
-          item.sas,
-          selectedSubject,
-          activeTps
+        matchedCount++;
+        const rawScore = row.stsScore;
+        const calc = calculatePureStsGrade(rawScore, kktp, row.catatanSts, selectedSubject.name);
+
+        const existingIdx = updatedGrades.findIndex(
+          (g) => g.studentId === student.id && g.subjectId === selectedSubjectId
         );
 
-        const newRecord: GradeRecord = {
-          id: `grd-${student.id}-${selectedSubjectId}`,
+        const updatedRecord: GradeRecord = {
+          id: existingIdx >= 0 ? updatedGrades[existingIdx].id : `grd-${student.id}-${selectedSubjectId}`,
           studentId: student.id,
           subjectId: selectedSubjectId,
           classId: selectedClassId,
           semester: 'Ganjil',
           academicYearId: 'ay-2025-1',
-          formatifScores: {},
-          sumatifScores: item.sumatifScores,
-          sumatifAkhirSemester: item.sas,
+          stsScore: calc.stsScore,
+          sumatifTengahSemester: calc.stsScore,
           nilaiAkhir: calc.nilaiAkhir,
-          highestCompetencyNarrative: calc.highestNarrative,
-          lowestCompetencyNarrative: calc.lowestNarrative,
+          catatanSts: calc.catatanSts,
+          statusSts: calc.status,
+          predikatSts: calc.predikat,
+          highestCompetencyNarrative: calc.catatanSts,
         };
 
-        const existingIdx = workingGrades.findIndex(
-          (g) => g.studentId === student.id && g.subjectId === selectedSubjectId
-        );
         if (existingIdx >= 0) {
-          workingGrades[existingIdx] = newRecord;
+          updatedGrades[existingIdx] = updatedRecord;
         } else {
-          workingGrades.push(newRecord);
+          updatedGrades.push(updatedRecord);
         }
       });
 
-      onUpdateGrades(workingGrades);
-      setUploadSuccessNotice(`Berhasil menyinkronkan ${matchCount} nilai siswa dari file Excel!`);
+      onUpdateGrades(updatedGrades);
+      setHasUnsavedChanges(true);
+      setUploadSuccessNotice(`Berhasil mengimpor nilai asli STS untuk ${matchedCount} siswa dari file Excel!`);
       setTimeout(() => setUploadSuccessNotice(null), 4000);
     } catch (err: any) {
-      alert(err.message);
-    } finally {
-      if (fileInputRef.current) fileInputRef.current.value = '';
+      alert(`Gagal membaca Excel: ${err.message}`);
     }
   };
 
-  const handleCreateTp = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newTpDesc.trim()) return;
-
-    const newObj: LearningObjective = {
-      id: `tp-${Date.now()}`,
-      subjectId: selectedSubjectId,
-      classId: selectedClassId,
-      semester: 'Ganjil',
-      code: newTpCode.trim() || `TP ${activeTps.length + 1}`,
-      description: newTpDesc.trim(),
-    };
-
-    onAddLearningObjective(newObj);
-    setNewTpDesc('');
-    setShowTpModal(false);
+  // Key navigation handler (Enter or Arrow Down -> next student input)
+  const handleScoreKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, currentIndex: number) => {
+    if (e.key === 'Enter' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      const nextInput = scoreInputsRef.current[currentIndex + 1];
+      if (nextInput) nextInput.focus();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      const prevInput = scoreInputsRef.current[currentIndex - 1];
+      if (prevInput) prevInput.focus();
+    }
   };
 
+  // Class & Subject Statistics Calculation
+  const eligibleScores = eligibleStudents
+    .map((s) => getStsScore(s.id))
+    .filter((sc): sc is number => typeof sc === 'number' && !isNaN(sc) && sc > 0);
+
+  const totalInputted = eligibleScores.length;
+  const avgSts = totalInputted > 0 ? Math.round(eligibleScores.reduce((a, b) => a + b, 0) / totalInputted) : 0;
+  const highestScore = totalInputted > 0 ? Math.max(...eligibleScores) : 0;
+  const lowestScore = totalInputted > 0 ? Math.min(...eligibleScores) : 0;
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-5 pb-24 font-sans text-slate-800">
       
-      {/* Top Filter and Info Card */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs space-y-4">
-        
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          {/* Class & Subject Selector */}
-          <div className="flex flex-wrap items-center gap-3">
-            <div>
-              <label className="text-[11px] font-semibold text-slate-500 block mb-1">Rombongan Belajar (Kelas)</label>
-              <select
-                value={selectedClassId}
-                onChange={(e) => setSelectedClassId(e.target.value)}
-                className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
-              >
-                {classes.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name} ({c.phase} - SMP)
-                  </option>
-                ))}
-              </select>
-            </div>
+      {/* Hidden file input for Excel upload */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".xlsx, .xls"
+        className="hidden"
+        onChange={handleFileUpload}
+      />
 
-            <div>
-              <label className="text-[11px] font-semibold text-slate-500 block mb-1">Mata Pelajaran</label>
-              <select
-                value={selectedSubjectId}
-                onChange={(e) => setSelectedSubjectId(e.target.value)}
-                className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:ring-2 focus:ring-blue-500 focus:outline-hidden max-w-[280px]"
-              >
-                {subjects.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.code} - {s.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+      {/* Floating Alert / Toast */}
+      {uploadSuccessNotice && (
+        <div className="fixed top-20 right-6 z-50 bg-emerald-600 text-white px-5 py-3 rounded-2xl shadow-xl flex items-center gap-3 animate-fade-in border border-emerald-400">
+          <CheckCircle2 className="w-5 h-5 shrink-0" />
+          <p className="text-xs font-bold">{uploadSuccessNotice}</p>
+        </div>
+      )}
 
-            <div className="hidden lg:block border-l border-slate-200 pl-3">
-              <div className="text-[11px] text-slate-500">Guru Pengampu</div>
-              <div className="text-xs font-bold text-slate-800 truncate max-w-[200px]">
-                {selectedSubject.teacherName}
+      {/* 1. KEMDIKBUD OFFICIAL HEADER BANNER */}
+      <div className="bg-linear-to-r from-blue-900 via-indigo-900 to-slate-900 rounded-2xl p-5 text-white shadow-md border border-blue-950/60 relative overflow-hidden">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 relative z-10">
+          
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg bg-white/10 flex items-center justify-center text-amber-300">
+                <GraduationCap className="w-4 h-4" />
               </div>
+              <span className="text-[11px] font-extrabold uppercase tracking-wider text-sky-200">
+                KEMENTERIAN PENDIDIKAN, KEBUDAYAAN, RISET, DAN TEKNOLOGI
+              </span>
             </div>
+            
+            <h1 className="text-xl sm:text-2xl font-black tracking-tight text-white flex items-center gap-2">
+              <span>Input Nilai Asli STS (Rapor Sisipan)</span>
+              <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                Resmi Kemdikbud
+              </span>
+            </h1>
+
+            <p className="text-xs text-slate-300 max-w-2xl leading-relaxed">
+              Formulir pengisian nilai sumatif tengah semester. Nilai yang diinput adalah <strong>nilai asli murni siswa (0–100)</strong> tanpa bobot dan tanpa pembagian TP, langsung tercetak pada rapor sisipan resmi.
+            </p>
           </div>
 
-          {/* Action Buttons: Excel Template & Upload */}
-          <div className="flex flex-wrap items-center gap-2">
+          {/* Quick Header Buttons */}
+          <div className="flex flex-wrap items-center gap-2.5">
             <button
-              onClick={handleDownloadTemplate}
-              className="bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition"
-              title="Unduh format spreadsheet untuk diisi nilai offline"
+              onClick={handleSaveGradesToCloud}
+              disabled={isSaving}
+              className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 shadow-md transition-all ${
+                hasUnsavedChanges
+                  ? 'bg-amber-400 text-slate-900 hover:bg-amber-300 animate-pulse ring-2 ring-amber-200'
+                  : 'bg-emerald-600 text-white hover:bg-emerald-700'
+              }`}
             >
-              <Download className="w-3.5 h-3.5 text-emerald-600" />
-              Unduh Template Excel
-            </button>
-
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-300 px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition"
-              title="Unggah hasil isian nilai dari Excel guru"
-            >
-              <Upload className="w-3.5 h-3.5 text-blue-600" />
-              Unggah Nilai Excel
-            </button>
-            <input
-              type="file"
-              ref={fileInputRef}
-              onChange={handleFileUpload}
-              accept=".xlsx, .xls, .csv"
-              className="hidden"
-            />
-
-            <button
-              onClick={handleRecalculateAll}
-              className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition"
-              title="Kalkulasi ulang Nilai Akhir & Narasi Capaian"
-            >
-              <RefreshCw className="w-3.5 h-3.5 text-slate-500" />
-              Hitung Ulang Narasi
+              {isSaving ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <span>Menyimpan ke Cloud...</span>
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4" />
+                  <span>{hasUnsavedChanges ? 'Simpan Nilai ke Cloud *' : 'Simpan Nilai ke Cloud'}</span>
+                </>
+              )}
             </button>
 
             <button
               onClick={() => setIsLocked(!isLocked)}
-              className={`px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition ${
+              className={`px-3 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition ${
                 isLocked
-                  ? 'bg-rose-50 text-rose-700 border border-rose-300'
-                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                  ? 'bg-rose-500/90 text-white hover:bg-rose-600'
+                  : 'bg-white/10 text-white hover:bg-white/20 border border-white/20'
               }`}
-              title={isLocked ? 'Buka kunci nilai' : 'Kunci nilai agar tidak berubah tidak sengaja'}
             >
-              {isLocked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
-              <span>{isLocked ? 'Terkunci' : 'Kunci Nilai'}</span>
+              {isLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
+              <span>{isLocked ? 'Kunci Form' : 'Buka Kunci'}</span>
+            </button>
+          </div>
+
+        </div>
+      </div>
+
+      {/* 2. OFFICIAL KEMDIKBUD FILTER & SELECTION CARD */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs space-y-4">
+        
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+          
+          {/* A. Filter Tingkat Kelas */}
+          <div>
+            <label className="text-[11px] font-bold uppercase tracking-wider text-slate-600 block mb-1.5 flex items-center gap-1">
+              <Filter className="w-3.5 h-3.5 text-blue-600" />
+              <span>1. Tingkat Kelas</span>
+            </label>
+            <select
+              value={selectedGradeFilter}
+              onChange={(e) => setSelectedGradeFilter(e.target.value as any)}
+              className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2.5 text-xs font-bold text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-blue-500 cursor-pointer"
+            >
+              <option value="all">Semua Tingkat (Kelas 7, 8 &amp; 9)</option>
+              <option value="7">Kelas 7 (Fase D SMP)</option>
+              <option value="8">Kelas 8 (Fase D SMP)</option>
+              <option value="9">Kelas 9 (Fase D SMP)</option>
+            </select>
+          </div>
+
+          {/* B. Filter Rombongan Belajar (Rombel) */}
+          <div>
+            <label className="text-[11px] font-bold uppercase tracking-wider text-slate-600 block mb-1.5 flex items-center gap-1">
+              <Users className="w-3.5 h-3.5 text-blue-600" />
+              <span>2. Rombel / Kelas (12 Rombel)</span>
+            </label>
+            <select
+              value={selectedClassId}
+              onChange={(e) => setSelectedClassId(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2.5 text-xs font-bold text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-blue-500 cursor-pointer"
+            >
+              {filteredClasses.map((cls) => (
+                <option key={cls.id} value={cls.id}>
+                  {cls.name} • Wali: {cls.homeroomTeacherName.split(',')[0]}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* C. Filter Mata Pelajaran */}
+          <div>
+            <label className="text-[11px] font-bold uppercase tracking-wider text-slate-600 block mb-1.5 flex items-center gap-1">
+              <BookOpen className="w-3.5 h-3.5 text-blue-600" />
+              <span>3. Mata Pelajaran</span>
+            </label>
+            <select
+              value={selectedSubjectId}
+              onChange={(e) => setSelectedSubjectId(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2.5 text-xs font-bold text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-blue-500 cursor-pointer"
+            >
+              {sortedSubjects.map((sub) => {
+                const subRel = getSubjectReligion(sub);
+                return (
+                  <option key={sub.id} value={sub.id}>
+                    {sub.name} (KKTP: {sub.kktp}){subRel ? ` • [Khusus Agama ${subRel}]` : ''}
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+
+          {/* D. Target KKTP Info Card */}
+          <div className="bg-blue-50/80 border border-blue-200 rounded-xl p-2.5 flex flex-col justify-between">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-bold text-blue-900 uppercase">
+                {subjectReligion ? `KKTP Agama ${subjectReligion}` : 'KKTP Mapel Ini'}
+              </span>
+              <span className="px-2 py-0.5 rounded-full bg-blue-600 text-white font-extrabold font-mono text-xs">
+                {kktp}
+              </span>
+            </div>
+            <p className="text-[10px] text-blue-800 mt-1 leading-tight">
+              {subjectReligion
+                ? `Hanya siswa beragama ${subjectReligion} yang ditampilkan.`
+                : 'Diikuti seluruh siswa di rombel ini.'}
+            </p>
+          </div>
+
+        </div>
+
+        {/* 3. TOOLBAR AKSI CEPAT STANDAR KEMDIKBUD */}
+        <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
+          
+          {/* Left: Excel Import & Export */}
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={handleDownloadTemplate}
+              className="bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition shadow-2xs"
+              title="Unduh Format Excel Nilai STS Resmi Kemdikbud"
+            >
+              <Download className="w-4 h-4 text-emerald-600" />
+              <span>Format Excel Nilai STS</span>
+            </button>
+
+            <button
+              onClick={handleTriggerUpload}
+              disabled={isLocked}
+              className="bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-300 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition shadow-2xs disabled:opacity-50"
+              title="Unggah Nilai Asli STS dari Berkas Excel"
+            >
+              <Upload className="w-4 h-4 text-blue-600" />
+              <span>Impor Nilai Excel</span>
+            </button>
+          </div>
+
+          {/* Right: Quick Tools for Teachers */}
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={handleQuickFillKktp}
+              disabled={isLocked || eligibleStudents.length === 0}
+              className="bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition"
+              title="Isi nilai default KKTP untuk siswa yang masih kosong"
+            >
+              <CheckSquare className="w-3.5 h-3.5 text-blue-600" />
+              <span>Isi Nilai KKTP ({kktp})</span>
+            </button>
+
+            <button
+              onClick={handleGenerateAllNarratives}
+              disabled={isLocked || eligibleStudents.length === 0}
+              className="bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition"
+              title="Generate narasi capaian otomatis sesuai panduan asesmen Kemdikbud"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+              <span>Generate Narasi Kemdikbud</span>
             </button>
           </div>
 
         </div>
 
-        {/* Kurikulum Merdeka Formula Banner */}
-        <div className="bg-sky-50/70 border border-sky-200 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between text-xs text-sky-900 gap-2">
-          <div className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-sky-600 shrink-0" />
-            <span>
-              <strong>Ketentuan Penilaian Kurikulum Merdeka:</strong> KKTP = <strong>{selectedSubject.kktp}</strong> | Bobot Sumatif LM = <strong>{selectedSubject.weightSLM}%</strong> | Bobot SAS = <strong>{selectedSubject.weightSAS}%</strong>
-            </span>
-          </div>
-          <div className="text-[11px] text-sky-700 font-medium">
-            Nilai Akhir = ({selectedSubject.weightSLM}% &times; Rata SLM) + ({selectedSubject.weightSAS}% &times; SAS)
-          </div>
-        </div>
-
-        {uploadSuccessNotice && (
-          <div className="bg-emerald-50 border border-emerald-300 text-emerald-800 p-3 rounded-xl text-xs flex items-center gap-2 animate-in fade-in">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-            <span>{uploadSuccessNotice}</span>
-          </div>
-        )}
-
       </div>
 
-      {/* Tujuan Pembelajaran (TP) Bar */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-2xs space-y-3">
-        <div className="flex items-center justify-between">
-          <div>
-            <h4 className="font-bold text-slate-800 text-xs">
-              Tujuan Pembelajaran (TP) Yang Dinilai Semester Ini ({activeTps.length} TP)
-            </h4>
-            <p className="text-[11px] text-slate-500">
-              Deskripsi TP digunakan sebagai dasar pembuatan narasi deskripsi capaian rapor otomatis.
-            </p>
-          </div>
-          <button
-            onClick={() => setShowTpModal(true)}
-            className="text-xs bg-blue-600 hover:bg-blue-700 text-white font-semibold px-2.5 py-1.5 rounded-lg flex items-center gap-1 transition"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            Tambah TP
-          </button>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5">
-          {activeTps.map((tp) => (
-            <div
-              key={tp.id}
-              className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs flex items-start justify-between gap-2"
-            >
-              <div>
-                <span className="font-black text-blue-700 text-[11px] bg-blue-100 px-1.5 py-0.5 rounded mr-1.5">
-                  {tp.code}
+      {/* KHUSUS MAPEL AGAMA: BANNER INFORMASI FILTER AGAMA SISWA */}
+      {subjectReligion && (
+        <div className="bg-linear-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-2xs">
+              <BookOpen className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-extrabold text-blue-950 text-xs">
+                  Filter Khusus Mapel Agama: {subjectReligion}
                 </span>
-                <span className="text-slate-700 text-[11px] leading-relaxed">
-                  {tp.description}
+                <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-200">
+                  Resmi Kemdikbud
                 </span>
               </div>
-              {activeTps.length > 1 && (
-                <button
-                  onClick={() => onDeleteLearningObjective(tp.id)}
-                  title="Hapus TP"
-                  className="text-slate-400 hover:text-rose-600 p-1"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              )}
+              <p className="text-[11px] text-blue-800 leading-relaxed mt-0.5">
+                Hanya menampilkan peserta didik yang memeluk agama <strong>{subjectReligion}</strong> ({eligibleStudents.length} siswa di {selectedClass?.name}). Mapel umum non-agama otomatis menampilkan seluruh siswa ({classStudents.length} siswa).
+              </p>
             </div>
-          ))}
+          </div>
+          <div className="shrink-0 text-right">
+            <span className="text-xs font-black text-blue-900 bg-white px-3 py-1.5 rounded-xl border border-blue-200 shadow-2xs inline-block">
+              {eligibleStudents.length} dari {classStudents.length} Siswa Terdaftar
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* 4. STATISTIK PENILAIAN STS KELAS (REKAPITULASI RESMI) */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-2xs">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
+            {subjectReligion ? `Siswa Agama ${subjectReligion}` : 'Peserta Didik'}
+          </span>
+          <span className="text-base font-extrabold text-slate-800 font-mono">{eligibleStudents.length} Siswa</span>
+        </div>
+
+        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-2xs">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Sudah Dinilai</span>
+          <span className="text-base font-extrabold text-blue-700 font-mono">
+            {totalInputted} / {eligibleStudents.length} ({eligibleStudents.length > 0 ? Math.round((totalInputted / eligibleStudents.length) * 100) : 0}%)
+          </span>
+        </div>
+
+        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-2xs">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Rerata STS Kelas</span>
+          <span className="text-base font-extrabold text-indigo-700 font-mono">{avgSts || '-'}</span>
+        </div>
+
+        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-2xs">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Nilai Tertinggi</span>
+          <span className="text-base font-extrabold text-emerald-700 font-mono">{highestScore || '-'}</span>
+        </div>
+
+        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-2xs">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">Nilai Terendah</span>
+          <span className="text-base font-extrabold text-amber-700 font-mono">{lowestScore || '-'}</span>
+        </div>
+
+        <div className="bg-blue-50/60 border border-blue-200 rounded-xl p-3 shadow-2xs">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-blue-700 block">Skala Penilaian</span>
+          <span className="text-xs font-black text-blue-900 font-mono uppercase tracking-wide">
+            0 - 100 Murni
+          </span>
         </div>
       </div>
 
-      {/* Grade Table */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
-        
-        {/* Table Filter & Search Bar */}
-        <div className="p-4 border-b border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-slate-800">
-              Daftar Penilaian Siswa ({filteredStudents.length} siswa)
-            </span>
-            {isLocked && (
-              <span className="text-[11px] font-bold text-rose-600 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-full flex items-center gap-1">
-                <Lock className="w-3 h-3" /> Lembar Nilai Dikunci
-              </span>
-            )}
-          </div>
-
-          <div className="relative w-full sm:w-64">
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
-            <input
-              type="text"
-              placeholder="Cari siswa / NISN..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-8 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
-            />
-          </div>
+      {/* 5. SEARCH & LIVE CLOUD STATUS */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="relative flex-1 max-w-md">
+          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Cari nama atau NISN siswa di kelas ini..."
+            className="w-full bg-white border border-slate-300 rounded-xl pl-9 pr-3 py-2 text-xs font-medium text-slate-800 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+          />
         </div>
 
-        {/* Interactive Responsive Table */}
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse">
-            <thead className="bg-slate-100/80 text-slate-700 uppercase font-bold text-[11px] border-b border-slate-200">
-              <tr>
-                <th className="p-3 w-10 text-center">No</th>
-                <th className="p-3 w-28">NISN</th>
-                <th className="p-3 min-w-[170px]">Nama Lengkap Siswa</th>
-                
-                {/* Dynamically display active TPs columns */}
-                {activeTps.map((tp) => (
-                  <th key={tp.id} className="p-2 w-20 text-center bg-blue-50/50 border-l border-slate-200" title={tp.description}>
-                    <div>{tp.code}</div>
-                    <div className="text-[9px] text-blue-600 font-normal">Sumatif</div>
-                  </th>
-                ))}
+        <div className="flex items-center gap-2 text-xs text-slate-500 bg-white px-3 py-1.5 rounded-xl border border-slate-200">
+          <Clock className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+          <span>Status Cloud: <strong className="text-slate-800 font-semibold">{lastSavedTime}</strong></span>
+        </div>
+      </div>
 
-                <th className="p-2 w-20 text-center bg-indigo-50/50 border-l border-slate-200" title="Sumatif Akhir Semester">
-                  <div>SAS</div>
-                  <div className="text-[9px] text-indigo-600 font-normal">{selectedSubject.weightSAS}%</div>
-                </th>
+      {/* 6. TABEL PENGIMPUTAN NILAI SISWA (STANDAR RESMI KEMDIKBUD) */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
+        
+        {/* FALLBACK KHUSUS JIKA KELAS INI BELUM MEMILIKI SISWA */}
+        {classStudents.length === 0 ? (
+          <div className="p-10 text-center space-y-4 max-w-lg mx-auto">
+            <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mx-auto border border-blue-200 shadow-xs">
+              <Users className="w-8 h-8" />
+            </div>
+            <div className="space-y-1">
+              <h3 className="text-base font-bold text-slate-900">
+                Data Peserta Didik Belum Ada di {selectedClass?.name || 'Rombel Ini'}
+              </h3>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                Rombongan belajar ini belum memiliki daftar nama siswa. Anda dapat membuat data siswa otomatis dalam 1 klik atau mengimpor data dari Excel.
+              </p>
+            </div>
 
-                <th className="p-2 w-20 text-center bg-emerald-50/60 border-l border-slate-200">
-                  <div>Nilai Akhir</div>
-                  <div className="text-[9px] text-emerald-700 font-normal">KKTP: {selectedSubject.kktp}</div>
-                </th>
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-2.5 pt-2">
+              <button
+                onClick={handleAutoPopulateStudentsForClass}
+                className="w-full sm:w-auto px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-sm transition"
+              >
+                <UserPlus className="w-4 h-4" />
+                <span>✨ Tambahkan Data 10 Siswa Otomatis</span>
+              </button>
 
-                <th className="p-3 min-w-[220px] border-l border-slate-200">
-                  Capaian Tertinggi
-                </th>
-                <th className="p-3 min-w-[220px] border-l border-slate-200">
-                  Perlu Bimbingan
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200">
-              {filteredStudents.length === 0 ? (
+              <button
+                onClick={handleTriggerUpload}
+                className="w-full sm:w-auto px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 border border-slate-300 transition"
+              >
+                <Upload className="w-4 h-4" />
+                <span>Impor dari Excel</span>
+              </button>
+            </div>
+          </div>
+        ) : eligibleStudents.length === 0 ? (
+          <div className="p-10 text-center space-y-4 max-w-lg mx-auto">
+            <div className="w-16 h-16 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center mx-auto border border-amber-200 shadow-xs">
+              <BookOpen className="w-8 h-8" />
+            </div>
+            <div className="space-y-1">
+              <h3 className="text-base font-bold text-slate-900">
+                Tidak Ada Peserta Didik Beragama {subjectReligion} di {selectedClass?.name}
+              </h3>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                Rombongan belajar {selectedClass?.name} memiliki total {classStudents.length} siswa, namun tidak ada siswa yang terdata memeluk agama <strong>{subjectReligion}</strong>. Nilai untuk mata pelajaran ini tidak perlu diinput untuk rombel ini.
+              </p>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-2.5 pt-2">
+              <button
+                onClick={() => {
+                  const nonRel = sortedSubjects.find((s) => !isReligionSubject(s));
+                  if (nonRel) setSelectedSubjectId(nonRel.id);
+                }}
+                className="w-full sm:w-auto px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-sm transition"
+              >
+                <BookOpen className="w-4 h-4" />
+                <span>Beralih ke Mata Pelajaran Umum</span>
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs text-left border-collapse">
+              
+              <thead className="bg-slate-900 text-white font-bold border-b border-slate-800 text-[11px] uppercase tracking-wider">
                 <tr>
-                  <td colSpan={activeTps.length + 6} className="p-8 text-center text-slate-400">
-                    Tidak ada siswa ditemukan di kelas ini.
-                  </td>
+                  <th className="p-3 text-center w-12">No</th>
+                  <th className="p-3 text-center w-28">NISN / NIS</th>
+                  <th className="p-3 text-left min-w-[220px]">Nama Peserta Didik</th>
+                  <th className="p-3 text-center w-12">JK</th>
+                  <th className="p-3 text-center w-16">KKTP</th>
+                  <th className="p-3 text-center w-36 bg-blue-950 border-x border-blue-800">
+                    Nilai Asli STS (0-100)
+                  </th>
+                  <th className="p-3 text-left min-w-[320px]">
+                    Catatan Capaian Kompetensi (Kemdikbud)
+                  </th>
                 </tr>
-              ) : (
-                filteredStudents.map((std, idx) => {
-                  const gradeRecord = grades.find(
-                    (g) => g.studentId === std.id && g.subjectId === selectedSubjectId
-                  );
-                  const na = gradeRecord ? gradeRecord.nilaiAkhir : 0;
-                  const isPassed = na >= selectedSubject.kktp;
+              </thead>
 
-                  return (
-                    <tr key={std.id} className="hover:bg-slate-50/80 transition">
-                      <td className="p-3 text-center text-slate-500 font-mono text-[11px]">{idx + 1}</td>
-                      <td className="p-3 font-mono text-slate-600 text-[11px]">{std.nisn}</td>
-                      <td className="p-3 font-semibold text-slate-900">
-                        {std.name}
-                        <span className="block text-[10px] text-slate-400 font-normal">NIS: {std.nis}</span>
-                      </td>
+              <tbody className="divide-y divide-slate-200">
+                {filteredStudents.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="p-8 text-center text-slate-500 font-medium">
+                      Tidak ditemukan data siswa yang cocok dengan kata kunci "{searchQuery}".
+                    </td>
+                  </tr>
+                ) : (
+                  filteredStudents.map((std, idx) => {
+                    const rawScore = getStsScore(std.id);
+                    const note = getTeacherNote(std.id);
 
-                      {/* Inputs for each TP */}
-                      {activeTps.map((tp) => {
-                        const scoreVal = gradeRecord?.sumatifScores?.[tp.id] ?? '';
-                        return (
-                          <td key={tp.id} className="p-2 text-center border-l border-slate-200">
+                    return (
+                      <tr
+                        key={std.id}
+                        className={`hover:bg-blue-50/50 transition-colors ${
+                          idx % 2 === 1 ? 'bg-slate-50/40' : 'bg-white'
+                        }`}
+                      >
+                        {/* 1. No */}
+                        <td className="p-3 text-center font-medium text-slate-500">
+                          {idx + 1}
+                        </td>
+
+                        {/* 2. NISN / NIS */}
+                        <td className="p-3 text-center font-mono text-[11px] text-slate-700">
+                          <div className="font-bold">{std.nisn}</div>
+                          <div className="text-[10px] text-slate-400">NIS: {std.nis}</div>
+                        </td>
+
+                        {/* 3. Nama Siswa */}
+                        <td className="p-3 font-semibold text-slate-900">
+                          <div className="text-slate-900 font-bold">{std.name}</div>
+                          <div className="text-[10px] text-slate-500 flex items-center gap-1.5 mt-0.5">
+                            <span>{selectedClass?.name}</span>
+                            <span>•</span>
+                            <span className="px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-700 font-semibold border border-slate-200 text-[9.5px]">
+                              Agama {std.religion || 'Islam'}
+                            </span>
+                          </div>
+                        </td>
+
+                        {/* 4. JK */}
+                        <td className="p-3 text-center font-bold">
+                          <span
+                            className={`inline-block w-6 h-6 leading-6 rounded-md text-[10px] ${
+                              std.gender === 'L'
+                                ? 'bg-blue-100 text-blue-700 font-bold'
+                                : 'bg-pink-100 text-pink-700 font-bold'
+                            }`}
+                          >
+                            {std.gender}
+                          </span>
+                        </td>
+
+                        {/* 5. KKTP */}
+                        <td className="p-3 text-center font-mono font-bold text-slate-600 bg-slate-50/60">
+                          {kktp}
+                        </td>
+
+                        {/* 6. Nilai Asli STS Siswa (Direct Input - Tanpa Predikat & Ketuntasan) */}
+                        <td className="p-3 text-center bg-blue-50/20 border-x border-slate-200">
+                          <div className="flex items-center justify-center">
                             <input
+                              ref={(el) => {
+                                scoreInputsRef.current[idx] = el;
+                              }}
                               type="number"
                               min="0"
                               max="100"
                               disabled={isLocked}
-                              value={scoreVal}
-                              onChange={(e) => handleScoreChange(std.id, tp.id, e.target.value)}
-                              className="w-16 text-center font-bold font-mono py-1 px-1 border border-slate-300 rounded-md bg-white focus:bg-blue-50 focus:ring-1 focus:ring-blue-500 focus:outline-hidden disabled:bg-slate-100 disabled:text-slate-500"
+                              value={rawScore}
+                              onChange={(e) => handleStsScoreChange(std.id, e.target.value)}
+                              onKeyDown={(e) => handleScoreKeyDown(e, idx)}
+                              placeholder="0"
+                              className={`w-24 text-center py-2 px-2.5 rounded-xl font-mono text-base font-black border shadow-2xs transition-all focus:outline-hidden focus:ring-2 focus:ring-blue-500 ${
+                                typeof rawScore !== 'number' || rawScore === 0
+                                  ? 'border-slate-300 text-slate-400 bg-white'
+                                  : 'border-blue-500 text-blue-900 bg-blue-50/60 font-black'
+                              }`}
                             />
-                          </td>
-                        );
-                      })}
+                          </div>
+                        </td>
 
-                      {/* SAS Input */}
-                      <td className="p-2 text-center border-l border-slate-200 bg-indigo-50/20">
-                        <input
-                          type="number"
-                          min="0"
-                          max="100"
-                          disabled={isLocked}
-                          value={gradeRecord?.sumatifAkhirSemester ?? ''}
-                          onChange={(e) => handleSasChange(std.id, e.target.value)}
-                          className="w-16 text-center font-bold font-mono py-1 px-1 border border-indigo-200 rounded-md bg-white focus:bg-indigo-50 focus:ring-1 focus:ring-indigo-500 focus:outline-hidden disabled:bg-slate-100"
-                        />
-                      </td>
+                        {/* 7. Catatan Capaian Kompetensi / Guru Mapel */}
+                        <td className="p-3">
+                          <div className="space-y-1.5">
+                            <input
+                              type="text"
+                              disabled={isLocked}
+                              value={note}
+                              onChange={(e) => handleNoteChange(std.id, e.target.value)}
+                              placeholder="Deskripsi pencapaian kompetensi tengah semester..."
+                              className="w-full bg-slate-50 hover:bg-white focus:bg-white border border-slate-300 rounded-xl px-2.5 py-1.5 text-xs text-slate-800 focus:outline-hidden focus:ring-1 focus:ring-blue-500 transition shadow-2xs"
+                            />
+                            
+                            {/* Template Narasi Cepat */}
+                            <div className="flex flex-wrap items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => handleApplyPresetNote(std.id, 'sangat_baik')}
+                                className="text-[10px] px-1.5 py-0.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded border border-indigo-200 transition font-medium"
+                              >
+                                Sangat Baik
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleApplyPresetNote(std.id, 'baik')}
+                                className="text-[10px] px-1.5 py-0.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded border border-emerald-200 transition font-medium"
+                              >
+                                Baik
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleApplyPresetNote(std.id, 'cukup')}
+                                className="text-[10px] px-1.5 py-0.5 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded border border-amber-200 transition font-medium"
+                              >
+                                Cukup
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleApplyPresetNote(std.id, 'perlu_bimbingan')}
+                                className="text-[10px] px-1.5 py-0.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded border border-rose-200 transition font-medium"
+                              >
+                                Perlu Bimbingan
+                              </button>
+                            </div>
+                          </div>
+                        </td>
 
-                      {/* Nilai Akhir Badge */}
-                      <td className="p-2 text-center border-l border-slate-200">
-                        <span className={`inline-block font-extrabold font-mono px-2.5 py-1 rounded-lg text-xs ${
-                          na === 0
-                            ? 'bg-slate-100 text-slate-400'
-                            : isPassed
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : 'bg-rose-100 text-rose-800'
-                        }`}>
-                          {na > 0 ? na : '-'}
-                        </span>
-                      </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
 
-                      {/* Highest Competency Narrative */}
-                      <td className="p-2.5 border-l border-slate-200 text-[11px] text-slate-700 leading-tight">
-                        {gradeRecord?.highestCompetencyNarrative || (
-                          <span className="text-slate-400 italic">Otomatis dihitung...</span>
-                        )}
-                      </td>
+            </table>
+          </div>
+        )}
 
-                      {/* Lowest Competency Narrative */}
-                      <td className="p-2.5 border-l border-slate-200 text-[11px] text-slate-600 leading-tight">
-                        {gradeRecord?.lowestCompetencyNarrative || (
-                          <span className="text-slate-400 italic">Otomatis dihitung...</span>
-                        )}
-                      </td>
+        {/* Footer info in table */}
+        <div className="p-3.5 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between text-xs text-slate-600 gap-2">
+          <div className="flex items-center gap-2">
+            <Info className="w-4 h-4 text-blue-600 shrink-0" />
+            <span className="font-medium text-slate-700">
+              Rapor Sisipan STS Murni: Penginputan nilai asli tes siswa (0–100) tanpa predikat dan tanpa status ketuntasan.
+            </span>
+          </div>
 
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+          <div className="font-extrabold text-slate-800">
+            {totalInputted} dari {eligibleStudents.length} Peserta Didik Telah Diisi Nilai STS ({eligibleStudents.length > 0 ? Math.round((totalInputted / eligibleStudents.length) * 100) : 0}%)
+          </div>
         </div>
 
       </div>
 
-      {/* Modal Add TP */}
-      {showTpModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full border border-slate-200 overflow-hidden animate-in fade-in">
-            <div className="bg-blue-600 text-white p-4 font-bold text-sm flex items-center justify-between">
-              <span>Tambah Tujuan Pembelajaran (TP) Baru</span>
-              <button onClick={() => setShowTpModal(false)} className="text-white/80 hover:text-white">&times;</button>
-            </div>
-            <form onSubmit={handleCreateTp} className="p-5 space-y-4 text-xs">
-              <div>
-                <label className="font-semibold text-slate-700 block mb-1">Kode TP</label>
-                <input
-                  type="text"
-                  required
-                  value={newTpCode}
-                  onChange={(e) => setNewTpCode(e.target.value)}
-                  placeholder="Contoh: TP 5"
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-hidden font-mono"
-                />
-              </div>
-              <div>
-                <label className="font-semibold text-slate-700 block mb-1">Deskripsi Capaian Kompetensi</label>
-                <textarea
-                  required
-                  rows={3}
-                  value={newTpDesc}
-                  onChange={(e) => setNewTpDesc(e.target.value)}
-                  placeholder="Contoh: Menganalisis penyajian data dalam bentuk diagram batang dan lingkaran..."
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
-                ></textarea>
-                <p className="text-[10px] text-slate-400 mt-1">Gunakan kata kerja operasional (C3-C5) sesuai pedoman Kurikulum Merdeka.</p>
-              </div>
-              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setShowTpModal(false)}
-                  className="px-4 py-2 border border-slate-300 rounded-lg text-slate-600 hover:bg-slate-50"
-                >
-                  Batal
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow-xs"
-                >
-                  Simpan TP
-                </button>
-              </div>
-            </form>
-          </div>
+      {/* 7. FLOATING SAVE ACTION BAR AT SCREEN BOTTOM */}
+      <div className="fixed bottom-4 right-4 left-4 sm:left-auto z-40 bg-slate-900/95 backdrop-blur-md text-white p-3 sm:px-5 sm:py-3.5 rounded-2xl shadow-2xl border border-slate-700 flex items-center justify-between gap-4">
+        <div className="flex items-center gap-2 text-xs">
+          <FileCheck className="w-4 h-4 text-emerald-400" />
+          <span className="text-slate-300">
+            {hasUnsavedChanges ? (
+              <strong className="text-amber-400">Ada perubahan nilai yang belum disimpan</strong>
+            ) : (
+              <span>Status: <strong className="text-emerald-400">Tersinkron ke Cloud</strong></span>
+            )}
+          </span>
         </div>
-      )}
+
+        <button
+          onClick={handleSaveGradesToCloud}
+          disabled={isSaving}
+          className={`px-5 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 shadow-md transition ${
+            hasUnsavedChanges
+              ? 'bg-amber-400 text-slate-900 hover:bg-amber-300 animate-pulse font-black'
+              : 'bg-emerald-600 text-white hover:bg-emerald-700'
+          }`}
+        >
+          {isSaving ? (
+            <>
+              <RefreshCw className="w-4 h-4 animate-spin" />
+              <span>Menyimpan...</span>
+            </>
+          ) : (
+            <>
+              <Save className="w-4 h-4" />
+              <span>Simpan Nilai Sekarang</span>
+            </>
+          )}
+        </button>
+      </div>
 
     </div>
   );

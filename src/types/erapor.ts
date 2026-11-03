@@ -49,9 +49,13 @@ export interface Teacher {
   name: string;
   email: string;
   phone: string;
-  role: 'Guru Mapel' | 'Wali Kelas' | 'Kepala Sekolah' | 'Kurikulum';
+  role: 'Guru Mapel' | 'Wali Kelas' | 'Kepala Sekolah' | 'Kurikulum' | 'Admin';
   assignedSubjectIds: string[];
   homeroomClassId?: string;
+  username?: string;
+  password?: string;
+  isActive?: boolean;
+  lastLoginAt?: string;
 }
 
 export interface Student {
@@ -86,8 +90,9 @@ export interface Subject {
   name: string;
   category: 'Kelompok Umum' | 'Muatan Lokal' | 'Pilihan';
   kktp: number; // Kriteria Ketercapaian Tujuan Pembelajaran (default e.g. 75)
-  weightSLM: number; // Bobot Sumatif Lingkup Materi (%) e.g. 60
-  weightSAS: number; // Bobot Sumatif Akhir Semester (%) e.g. 40
+  weightSLM: number; // Bobot Sumatif Lingkup Materi (%) e.g. 50
+  weightSTS?: number; // Bobot Sumatif Tengah Semester (%) e.g. 20
+  weightSAS: number; // Bobot Sumatif Akhir Semester (%) e.g. 30
   teacherId: string;
   teacherName: string;
 }
@@ -108,17 +113,21 @@ export interface GradeRecord {
   classId: string;
   semester: 'Ganjil' | 'Genap';
   academicYearId: string;
-  // Nilai Formatif per TP
-  formatifScores: Record<string, number>;
-  // Nilai Sumatif Lingkup Materi per TP
-  sumatifScores: Record<string, number>;
-  // Nilai Sumatif Akhir Semester (SAS / ASAS)
-  sumatifAkhirSemester: number;
-  // Nilai Akhir hasil kalkulasi
+  // Nilai Asli Sumatif Tengah Semester (STS) siswa
+  stsScore?: number;
+  sumatifTengahSemester?: number; // alias untuk STS
+  // Nilai Rapor Sisipan (sama dengan nilai asli STS siswa)
   nilaiAkhir: number;
-  // Narasi capaian otomatis
-  highestCompetencyNarrative: string;
-  lowestCompetencyNarrative: string;
+  // Catatan Guru Mata Pelajaran / Perkembangan Belajar Tengah Semester
+  catatanSts?: string;
+  statusSts?: 'Tuntas' | 'Belum Tuntas';
+  predikatSts?: 'A' | 'B' | 'C' | 'D';
+  // Nilai Formatif & Sumatif LM (tersimpan untuk kompatibilitas jika dibutuhkan)
+  formatifScores?: Record<string, number>;
+  sumatifScores?: Record<string, number>;
+  sumatifAkhirSemester?: number;
+  highestCompetencyNarrative?: string;
+  lowestCompetencyNarrative?: string;
   isLocked?: boolean;
 }
 

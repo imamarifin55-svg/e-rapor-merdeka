@@ -51,6 +51,7 @@ import { StudentSyncView } from './components/StudentSyncView';
 import { ReportCardPrintView } from './components/ReportCardPrintView';
 import { HomeroomManagementView } from './components/HomeroomManagementView';
 import { BackupRestoreView } from './components/BackupRestoreView';
+import { TeacherManagementView } from './components/TeacherManagementView';
 import { FirebaseConsoleSetupModal } from './components/FirebaseConsoleSetupModal';
 import { CloudDatabaseComparisonModal } from './components/CloudDatabaseComparisonModal';
 import { LoginPage } from './components/LoginPage';
@@ -83,9 +84,21 @@ export default function App() {
   const [selectedAcademicYearId, setSelectedAcademicYearId] = useState<string>(
     academicYears.find((ay) => ay.isActive)?.id || academicYears[0]?.id || 'ay-2025-1'
   );
-  const [teachers, setTeachers] = useState<Teacher[]>(
-    savedState?.teachers || INITIAL_TEACHERS
-  );
+  const [teachers, setTeachers] = useState<Teacher[]>(() => {
+    if (savedState?.teachers && savedState.teachers.length >= INITIAL_TEACHERS.length) {
+      return savedState.teachers;
+    }
+    if (savedState?.teachers && savedState.teachers.length > 0) {
+      const merged = [...savedState.teachers];
+      INITIAL_TEACHERS.forEach((t) => {
+        if (!merged.some((m) => m.id === t.id)) {
+          merged.push(t);
+        }
+      });
+      return merged;
+    }
+    return INITIAL_TEACHERS;
+  });
   // Ensure we use the 12 rombel (7.1-7.4, 8.1-8.4, 9.1-9.4)
   const [classes, setClasses] = useState<ClassRoom[]>(() => {
     if (savedState?.classes && savedState.classes.length >= 12) {
@@ -93,18 +106,67 @@ export default function App() {
     }
     return INITIAL_CLASSES;
   });
-  const [subjects, setSubjects] = useState<Subject[]>(
-    savedState?.subjects || INITIAL_SUBJECTS
-  );
-  const [students, setStudents] = useState<Student[]>(
-    savedState?.students || INITIAL_STUDENTS
-  );
+  const [subjects, setSubjects] = useState<Subject[]>(() => {
+    if (savedState?.subjects && savedState.subjects.length > 0) {
+      const working = savedState.subjects.map((s) => {
+        if (s.id === 'sub-jawa' || s.name.toLowerCase().includes('bahasa jawa')) {
+          return {
+            ...s,
+            id: 'sub-lampung',
+            code: 'MLK-01',
+            name: 'Bahasa dan Aksara Lampung',
+            category: 'Muatan Lokal' as const,
+          };
+        }
+        return s;
+      });
+
+      INITIAL_SUBJECTS.forEach((initSub) => {
+        if (!working.some((w) => w.id === initSub.id || w.name.toLowerCase() === initSub.name.toLowerCase())) {
+          working.push(initSub);
+        }
+      });
+      return working;
+    }
+    return INITIAL_SUBJECTS;
+  });
+  const [students, setStudents] = useState<Student[]>(() => {
+    if (savedState?.students && savedState.students.length >= 80) {
+      return savedState.students;
+    }
+    if (savedState?.students && savedState.students.length > 0) {
+      const working = [...savedState.students];
+      INITIAL_STUDENTS.forEach((st) => {
+        if (!working.some((w) => w.id === st.id || w.nisn === st.nisn)) {
+          working.push(st);
+        }
+      });
+      return working;
+    }
+    return INITIAL_STUDENTS;
+  });
   const [learningObjectives, setLearningObjectives] = useState<LearningObjective[]>(
     savedState?.learningObjectives || INITIAL_LEARNING_OBJECTIVES
   );
-  const [grades, setGrades] = useState<GradeRecord[]>(
-    savedState?.grades || INITIAL_GRADES
-  );
+  const [grades, setGrades] = useState<GradeRecord[]>(() => {
+    const baseGrades = savedState?.grades && savedState.grades.length > 0
+      ? savedState.grades
+      : INITIAL_GRADES;
+
+    const working = baseGrades.map((g) => {
+      if (g.subjectId === 'sub-jawa') {
+        return { ...g, subjectId: 'sub-lampung' };
+      }
+      return g;
+    });
+
+    INITIAL_GRADES.forEach((gr) => {
+      if (!working.some((w) => w.studentId === gr.studentId && w.subjectId === gr.subjectId)) {
+        working.push(gr);
+      }
+    });
+    return working;
+  });
   const [attendances, setAttendances] = useState<AttendanceRecord[]>(
     savedState?.attendances || INITIAL_ATTENDANCE
   );
@@ -205,6 +267,11 @@ export default function App() {
     pushStateToFirestore({ grades: updatedGrades });
   };
 
+  const handleUpdateTeachers = (updatedTeachers: Teacher[]) => {
+    setTeachers(updatedTeachers);
+    pushStateToFirestore({ teachers: updatedTeachers });
+  };
+
   const handleUpdateStudents = (updatedStudents: Student[]) => {
     setStudents(updatedStudents);
     pushStateToFirestore({ students: updatedStudents });
@@ -247,7 +314,8 @@ export default function App() {
 
   const tabLabels: Record<string, string> = {
     dashboard: 'Dasbor Penilaian & Statistik KKTP',
-    grades: 'Kelola Nilai & Tujuan Pembelajaran (TP)',
+    grades: 'Input Nilai Asli STS (Rapor Sisipan)',
+    teachers: 'Data Guru & Akun e-Rapor',
     students: 'Data Siswa & Sinkronisasi Massal Excel',
     homeroom: 'Wali Kelas: Rekap Absensi, Ekskul & Catatan Rapor',
     reports: 'Cetak Rapor Resmi & Leger Nilai PDF',
@@ -484,6 +552,7 @@ export default function App() {
                   learningObjectives={learningObjectives}
                   grades={grades}
                   onUpdateGrades={handleUpdateGrades}
+                  onUpdateStudents={handleUpdateStudents}
                   onAddLearningObjective={(newTp) => {
                     const next = [...learningObjectives, newTp];
                     setLearningObjectives(next);
@@ -494,6 +563,17 @@ export default function App() {
                     setLearningObjectives(next);
                     pushStateToFirestore({ learningObjectives: next });
                   }}
+                />
+              )}
+
+              {currentTab === 'teachers' && (
+                <TeacherManagementView
+                  teachers={teachers}
+                  subjects={subjects}
+                  classes={classes}
+                  schoolProfile={schoolProfile}
+                  onUpdateTeachers={handleUpdateTeachers}
+                  onSaveToCloud={() => pushStateToFirestore({ teachers })}
                 />
               )}
 
