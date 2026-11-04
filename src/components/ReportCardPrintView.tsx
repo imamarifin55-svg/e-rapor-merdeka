@@ -31,6 +31,7 @@ import {
   getEligibleSubjectsForStudent,
   sortKemdikbudSubjects,
 } from '../utils/subjectReligionHelper';
+import { PemdaLogo, SchoolLogo } from './SchoolLogos';
 
 interface Props {
   schoolProfile: SchoolProfile;
@@ -275,20 +276,47 @@ export const ReportCardPrintView: React.FC<Props> = ({
         {viewType === 'sts_report' && (
           <div className="space-y-6">
             
-            {/* Kop Resmi Sekolah */}
-            <div className="border-b-4 border-double border-slate-900 pb-3 text-center space-y-0.5">
-              <h2 className="font-black text-xl tracking-wider text-slate-900 uppercase">
-                {schoolProfile.name}
-              </h2>
-              <p className="text-xs font-semibold text-slate-700">
-                NPSN: {schoolProfile.npsn} {schoolProfile.nss ? `| NSS: ${schoolProfile.nss}` : ''}
-              </p>
-              <p className="text-[11px] text-slate-600">
-                {schoolProfile.address}, {schoolProfile.village}, {schoolProfile.district}, {schoolProfile.city}, {schoolProfile.province}
-              </p>
-              <p className="text-[10px] text-slate-500">
-                Telp: {schoolProfile.phone} | Surel: {schoolProfile.email} | Laman: {schoolProfile.website}
-              </p>
+            {/* Kop Resmi Sekolah Standar Kemdikbud & Pemkab Tulang Bawang Barat */}
+            <div className="pb-3">
+              <div className="flex items-center justify-between gap-4">
+                {/* Logo Kiri: Pemkab Tulang Bawang Barat */}
+                <div className="w-20 sm:w-24 shrink-0 flex justify-center">
+                  <PemdaLogo customSrc={schoolProfile.logoPemda} className="w-18 h-18 sm:w-20 sm:h-20" />
+                </div>
+
+                {/* Kop Teks Tengah */}
+                <div className="flex-1 text-center space-y-0.5">
+                  <h3 className="font-bold text-xs sm:text-sm tracking-wider uppercase text-slate-800">
+                    PEMERINTAH KABUPATEN {schoolProfile.city?.toUpperCase() || 'TULANG BAWANG BARAT'}
+                  </h3>
+                  <h3 className="font-extrabold text-xs sm:text-sm tracking-wider uppercase text-slate-800">
+                    DINAS PENDIDIKAN DAN KEBUDAYAAN
+                  </h3>
+                  <h2 className="font-black text-lg sm:text-xl tracking-wide uppercase text-slate-900 pt-0.5">
+                    {schoolProfile.name}
+                  </h2>
+                  <p className="text-[11px] font-semibold text-slate-700 font-mono">
+                    NPSN: {schoolProfile.npsn} {schoolProfile.nss ? `| NSS: ${schoolProfile.nss}` : ''}
+                  </p>
+                  <p className="text-[11px] text-slate-700 leading-snug">
+                    {schoolProfile.address}, Kec. {schoolProfile.district || 'Gunung Agung'}, Kab. {schoolProfile.city || 'Tulang Bawang Barat'}
+                  </p>
+                  <p className="text-[10px] text-slate-600">
+                    Provinsi {schoolProfile.province || 'Lampung'} Kode Pos {schoolProfile.postalCode || '34683'} | Pos-el: {schoolProfile.email || 'smpn14tubaba@sch.id'}
+                  </p>
+                </div>
+
+                {/* Logo Kanan: Tut Wuri Handayani / Lambang Sekolah */}
+                <div className="w-20 sm:w-24 shrink-0 flex justify-center">
+                  <SchoolLogo customSrc={schoolProfile.logoSekolah} className="w-18 h-18 sm:w-20 sm:h-20" />
+                </div>
+              </div>
+
+              {/* Garis Ganda Standar Kop Surat Resmi (Tebal & Tipis) */}
+              <div className="pt-2">
+                <div className="border-b-[3px] border-slate-900 w-full" />
+                <div className="border-b border-slate-900 w-full mt-[2px]" />
+              </div>
             </div>
 
             {/* Document Title: Rapor Sisipan STS */}
@@ -484,16 +512,22 @@ export const ReportCardPrintView: React.FC<Props> = ({
         {/* VIEW 2: LEGER NILAI STS KELAS */}
         {viewType === 'leger' && (
           <div className="space-y-6">
-            <div className="text-center space-y-1 border-b-2 border-slate-800 pb-4">
-              <h2 className="font-black text-base uppercase text-slate-900 tracking-wider">
-                LEGER NILAI ASESMEN SUMATIF TENGAH SEMESTER (STS)
-              </h2>
-              <p className="text-xs font-semibold text-slate-800">
-                {schoolProfile.name} • KELAS {selectedClass.name.toUpperCase()}
-              </p>
-              <p className="text-[11px] text-slate-600">
-                Tahun Ajaran {currentAcademicYear.year} Semester {currentAcademicYear.semester} (Rapor Sisipan / Murni STS)
-              </p>
+            <div className="border-b-2 border-slate-800 pb-3">
+              <div className="flex items-center justify-between gap-4">
+                <PemdaLogo customSrc={schoolProfile.logoPemda} className="w-14 h-14 shrink-0" />
+                <div className="flex-1 text-center space-y-0.5">
+                  <h2 className="font-black text-sm uppercase text-slate-900 tracking-wider">
+                    LEGER NILAI ASESMEN SUMATIF TENGAH SEMESTER (STS)
+                  </h2>
+                  <p className="text-xs font-extrabold text-slate-800">
+                    {schoolProfile.name} • KELAS {selectedClass.name.toUpperCase()}
+                  </p>
+                  <p className="text-[11px] text-slate-600">
+                    Tahun Ajaran {currentAcademicYear.year} Semester {currentAcademicYear.semester} (Rapor Sisipan / Murni STS)
+                  </p>
+                </div>
+                <SchoolLogo customSrc={schoolProfile.logoSekolah} className="w-14 h-14 shrink-0" />
+              </div>
             </div>
 
             <div className="overflow-x-auto">

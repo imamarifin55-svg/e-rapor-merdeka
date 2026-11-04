@@ -34,6 +34,8 @@ export interface SchoolProfile {
   reportDate: string;
   reportPlace: string;
   curriculum: 'Kurikulum Merdeka' | 'Kurikulum 2013';
+  logoSekolah?: string;
+  logoPemda?: string;
 }
 
 export interface AcademicYear {

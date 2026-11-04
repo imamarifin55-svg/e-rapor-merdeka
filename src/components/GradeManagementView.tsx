@@ -34,6 +34,8 @@ import {
   UserPlus,
   HelpCircle,
   FileCheck,
+  Edit3,
+  X,
 } from 'lucide-react';
 import {
   calculatePureStsGrade,
@@ -56,6 +58,7 @@ interface Props {
   grades: GradeRecord[];
   onUpdateGrades: (updatedGrades: GradeRecord[]) => void;
   onUpdateStudents?: (updatedStudents: Student[]) => void;
+  onUpdateSubjects?: (updatedSubjects: Subject[]) => void;
   onAddLearningObjective?: (newTp: LearningObjective) => void;
   onDeleteLearningObjective?: (tpId: string) => void;
 }
@@ -68,6 +71,7 @@ export const GradeManagementView: React.FC<Props> = ({
   grades,
   onUpdateGrades,
   onUpdateStudents,
+  onUpdateSubjects,
 }) => {
   // Ensure valid initial class ID
   const initialClassId = (() => {
@@ -112,6 +116,42 @@ export const GradeManagementView: React.FC<Props> = ({
   const selectedSubject = subjects.find((s) => s.id === selectedSubjectId) || sortedSubjects[0] || subjects[0];
   const kktp = selectedSubject?.kktp || 75;
   const subjectReligion = getSubjectReligion(selectedSubject);
+
+  // KKTP Editable States
+  const [isEditingKktp, setIsEditingKktp] = useState(false);
+  const [kktpInputVal, setKktpInputVal] = useState<number>(selectedSubject?.kktp || 75);
+  const [showAllKktpModal, setShowAllKktpModal] = useState(false);
+  const [bulkKktpSubjects, setBulkKktpSubjects] = useState<Subject[]>([...subjects]);
+
+  useEffect(() => {
+    if (selectedSubject) {
+      setKktpInputVal(selectedSubject.kktp || 75);
+    }
+  }, [selectedSubjectId, selectedSubject?.kktp]);
+
+  useEffect(() => {
+    setBulkKktpSubjects([...subjects]);
+  }, [subjects]);
+
+  const handleSaveCurrentKktp = () => {
+    const cleanVal = Math.max(0, Math.min(100, Math.round(Number(kktpInputVal) || 75)));
+    if (onUpdateSubjects) {
+      const next = subjects.map((s) => (s.id === selectedSubject.id ? { ...s, kktp: cleanVal } : s));
+      onUpdateSubjects(next);
+    }
+    setIsEditingKktp(false);
+    setUploadSuccessNotice(`KKTP ${selectedSubject.name} berhasil diubah menjadi ${cleanVal}!`);
+    setTimeout(() => setUploadSuccessNotice(null), 3000);
+  };
+
+  const handleSaveAllKktp = () => {
+    if (onUpdateSubjects) {
+      onUpdateSubjects(bulkKktpSubjects);
+    }
+    setShowAllKktpModal(false);
+    setUploadSuccessNotice(`KKTP untuk ${bulkKktpSubjects.length} mata pelajaran berhasil diperbarui!`);
+    setTimeout(() => setUploadSuccessNotice(null), 3500);
+  };
 
   // Filter classes based on grade filter
   const filteredClasses = classes.filter((cls) => {
@@ -679,21 +719,78 @@ export const GradeManagementView: React.FC<Props> = ({
             </select>
           </div>
 
-          {/* D. Target KKTP Info Card */}
-          <div className="bg-blue-50/80 border border-blue-200 rounded-xl p-2.5 flex flex-col justify-between">
+          {/* D. Target KKTP Info Card (Editable) */}
+          <div className="bg-blue-50/90 border border-blue-200 rounded-xl p-2.5 flex flex-col justify-between shadow-2xs">
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-bold text-blue-900 uppercase">
                 {subjectReligion ? `KKTP Agama ${subjectReligion}` : 'KKTP Mapel Ini'}
               </span>
-              <span className="px-2 py-0.5 rounded-full bg-blue-600 text-white font-extrabold font-mono text-xs">
-                {kktp}
-              </span>
+
+              {isEditingKktp ? (
+                <div className="flex items-center gap-1">
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    autoFocus
+                    value={kktpInputVal}
+                    onChange={(e) => setKktpInputVal(Number(e.target.value))}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleSaveCurrentKktp();
+                      if (e.key === 'Escape') setIsEditingKktp(false);
+                    }}
+                    className="w-14 px-1.5 py-0.5 bg-white border border-blue-400 rounded text-xs font-mono font-bold text-center text-blue-900 focus:outline-hidden ring-2 ring-blue-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleSaveCurrentKktp}
+                    className="p-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[10px] font-bold"
+                    title="Simpan KKTP Mapel Ini"
+                  >
+                    <Check className="w-3 h-3" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setKktpInputVal(kktp);
+                      setIsEditingKktp(false);
+                    }}
+                    className="p-1 text-slate-500 hover:text-slate-800 rounded text-[10px]"
+                    title="Batal"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5">
+                  <span className="px-2 py-0.5 rounded-full bg-blue-600 text-white font-extrabold font-mono text-xs">
+                    {kktp}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setIsEditingKktp(true)}
+                    className="text-[10px] bg-white border border-blue-300 text-blue-700 hover:bg-blue-100 font-bold px-1.5 py-0.5 rounded transition flex items-center gap-1"
+                    title="Ubah nilai KKTP mata pelajaran ini"
+                  >
+                    <Edit3 className="w-2.5 h-2.5" />
+                    Ubah
+                  </button>
+                </div>
+              )}
             </div>
-            <p className="text-[10px] text-blue-800 mt-1 leading-tight">
-              {subjectReligion
-                ? `Hanya siswa beragama ${subjectReligion} yang ditampilkan.`
-                : 'Diikuti seluruh siswa di rombel ini.'}
-            </p>
+
+            <div className="flex items-center justify-between mt-1 pt-1 border-t border-blue-200/60 text-[10px]">
+              <span className="text-blue-800 truncate">
+                {subjectReligion ? `Khusus Agama ${subjectReligion}` : 'Seluruh Siswa'}
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowAllKktpModal(true)}
+                className="text-blue-700 hover:text-blue-950 font-bold underline shrink-0 ml-1"
+              >
+                Atur Semua KKTP
+              </button>
+            </div>
           </div>
 
         </div>
@@ -1111,6 +1208,114 @@ export const GradeManagementView: React.FC<Props> = ({
           )}
         </button>
       </div>
+
+      {/* POPUP MODAL: ATUR KKTP SELURUH MATA PELAJARAN */}
+      {showAllKktpModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full border border-slate-200 overflow-hidden my-6 animate-in fade-in duration-150 flex flex-col max-h-[85vh]">
+            
+            <div className="bg-slate-900 text-white p-4 sm:p-5 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center shadow-md">
+                  <BookOpen className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-base">Kelola Kriteria Ketercapaian (KKTP) Mapel</h3>
+                  <p className="text-[11px] text-slate-300">
+                    Atur nilai ketuntasan tujuan pembelajaran untuk seluruh mata pelajaran di satuan pendidikan
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAllKktpModal(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-4 sm:p-5 overflow-y-auto flex-1 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2 bg-amber-50 border border-amber-200 p-3 rounded-xl text-amber-900 text-xs">
+                <div className="flex items-center gap-2">
+                  <Info className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>Set Cepat Seragam:</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  {[70, 72, 75, 78, 80].map((val) => (
+                    <button
+                      key={val}
+                      type="button"
+                      onClick={() =>
+                        setBulkKktpSubjects((prev) => prev.map((s) => ({ ...s, kktp: val })))
+                      }
+                      className="px-2.5 py-1 bg-white border border-amber-300 rounded font-bold hover:bg-amber-100 transition text-[11px]"
+                    >
+                      {val}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs">
+                <table className="w-full text-xs text-left">
+                  <thead className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
+                    <tr>
+                      <th className="p-2.5 w-10 text-center">No</th>
+                      <th className="p-2.5 w-20">Kode</th>
+                      <th className="p-2.5">Mata Pelajaran</th>
+                      <th className="p-2.5 w-24 text-center">Nilai KKTP</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {bulkKktpSubjects.map((sub, idx) => (
+                      <tr key={sub.id} className="hover:bg-slate-50 transition">
+                        <td className="p-2.5 text-center font-mono text-slate-500">{idx + 1}</td>
+                        <td className="p-2.5 font-mono font-bold text-slate-700">{sub.code}</td>
+                        <td className="p-2.5 font-semibold text-slate-900">{sub.name}</td>
+                        <td className="p-2.5 text-center">
+                          <input
+                            type="number"
+                            min={0}
+                            max={100}
+                            value={sub.kktp}
+                            onChange={(e) => {
+                              const v = e.target.value === '' ? 0 : Math.max(0, Math.min(100, Math.round(Number(e.target.value))));
+                              setBulkKktpSubjects((prev) =>
+                                prev.map((item) => (item.id === sub.id ? { ...item, kktp: v } : item))
+                              );
+                            }}
+                            className="w-16 px-2 py-1 text-center font-mono font-bold border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-hidden bg-white text-blue-900"
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-slate-200 flex items-center justify-end gap-2 bg-slate-50 shrink-0">
+              <button
+                type="button"
+                onClick={() => setShowAllKktpModal(false)}
+                className="px-4 py-2 border border-slate-300 rounded-xl text-slate-700 hover:bg-slate-100 font-semibold text-xs transition"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveAllKktp}
+                className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-sm transition"
+              >
+                <Save className="w-4 h-4" />
+                Simpan Perubahan KKTP
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
 
     </div>
   );

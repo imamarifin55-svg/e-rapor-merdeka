@@ -27,6 +27,7 @@ import {
   UserCheck,
   LogOut,
 } from 'lucide-react';
+import { SchoolLogo } from './SchoolLogos';
 
 interface Props {
   currentTab: string;
@@ -148,8 +149,8 @@ export const Sidebar: React.FC<Props> = ({
         {/* Brand / School Header */}
         <div className="p-4 border-b border-slate-800/80 flex items-center justify-between">
           <div className="flex items-center gap-3 overflow-hidden">
-            <div className="w-10 h-10 rounded-xl bg-linear-to-br from-blue-600 to-indigo-700 flex items-center justify-center text-white shrink-0 shadow-md ring-2 ring-blue-500/30">
-              <GraduationCap className="w-6 h-6" />
+            <div className="w-10 h-10 rounded-xl bg-slate-900 border border-slate-700/80 flex items-center justify-center p-1 text-white shrink-0 shadow-md ring-2 ring-blue-500/30 overflow-hidden">
+              <SchoolLogo customSrc={schoolProfile.logoSekolah} className="w-8 h-8" />
             </div>
             {!isCollapsed && (
               <div className="overflow-hidden">

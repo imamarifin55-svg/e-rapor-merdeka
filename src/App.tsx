@@ -75,14 +75,36 @@ export default function App() {
   // Load initial state from LocalStorage or use realistic default 12-rombel dataset
   const savedState = loadFromLocalState();
 
-  const [schoolProfile, setSchoolProfile] = useState<SchoolProfile>(
-    savedState?.schoolProfile || INITIAL_SCHOOL_PROFILE
-  );
-  const [academicYears, setAcademicYears] = useState<AcademicYear[]>(
-    savedState?.academicYears || INITIAL_ACADEMIC_YEARS
-  );
+  const [schoolProfile, setSchoolProfile] = useState<SchoolProfile>(() => {
+    if (
+      savedState?.schoolProfile &&
+      savedState.schoolProfile.npsn !== '20108899' &&
+      !savedState.schoolProfile.name?.includes('MERDEKA NUSANTARA')
+    ) {
+      return {
+        ...INITIAL_SCHOOL_PROFILE,
+        ...savedState.schoolProfile,
+      };
+    }
+    return INITIAL_SCHOOL_PROFILE;
+  });
+  const [academicYears, setAcademicYears] = useState<AcademicYear[]>(() => {
+    const base = savedState?.academicYears || INITIAL_ACADEMIC_YEARS;
+    const has2026Ganjil = base.some((ay) => ay.year === '2026/2027' && ay.semester === 'Ganjil');
+    const has2026Genap = base.some((ay) => ay.year === '2026/2027' && ay.semester === 'Genap');
+    if (!has2026Ganjil || !has2026Genap) {
+      const merged = [...INITIAL_ACADEMIC_YEARS];
+      base.forEach((b) => {
+        if (!merged.some((m) => m.year === b.year && m.semester === b.semester)) {
+          merged.push(b);
+        }
+      });
+      return merged;
+    }
+    return base;
+  });
   const [selectedAcademicYearId, setSelectedAcademicYearId] = useState<string>(
-    academicYears.find((ay) => ay.isActive)?.id || academicYears[0]?.id || 'ay-2025-1'
+    academicYears.find((ay) => ay.isActive)?.id || academicYears[0]?.id || 'ay-2026-1'
   );
   const [teachers, setTeachers] = useState<Teacher[]>(() => {
     if (savedState?.teachers && savedState.teachers.length >= INITIAL_TEACHERS.length) {
@@ -260,6 +282,16 @@ export default function App() {
     setSchoolProfile(updated);
     // Push directly to Firestore so all browsers get updated via onSnapshot!
     await pushSchoolProfileToFirestore(updated);
+  };
+
+  const handleUpdateSubjects = (updatedSubjects: Subject[]) => {
+    setSubjects(updatedSubjects);
+    pushStateToFirestore({ subjects: updatedSubjects });
+  };
+
+  const handleUpdateAcademicYears = (updatedYears: AcademicYear[]) => {
+    setAcademicYears(updatedYears);
+    pushStateToFirestore({ academicYears: updatedYears });
   };
 
   const handleUpdateGrades = (updatedGrades: GradeRecord[]) => {
@@ -553,6 +585,7 @@ export default function App() {
                   grades={grades}
                   onUpdateGrades={handleUpdateGrades}
                   onUpdateStudents={handleUpdateStudents}
+                  onUpdateSubjects={handleUpdateSubjects}
                   onAddLearningObjective={(newTp) => {
                     const next = [...learningObjectives, newTp];
                     setLearningObjectives(next);
@@ -697,6 +730,10 @@ export default function App() {
         onClose={() => setIsSettingsModalOpen(false)}
         profile={schoolProfile}
         onSave={handleSaveSchoolProfile}
+        subjects={subjects}
+        onSaveSubjects={handleUpdateSubjects}
+        academicYears={academicYears}
+        onSaveAcademicYears={handleUpdateAcademicYears}
       />
 
     </div>
